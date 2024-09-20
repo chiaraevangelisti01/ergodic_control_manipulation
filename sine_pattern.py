@@ -57,7 +57,7 @@ def plot_control_inputs(control_inputs, ax=None):
 
 # Parameters definition
 param = lambda: None
-param.nbData = 1000  # Number of data points (increased based on original MATLAB code)
+param.nbData = 200  # Number of data points 
 param.nbVarX = 2  # State space dimension (2D)
 param.nbStates = 2  # Number of Gaussians in GMM
 param.dt = 1e-2  # Time step length
