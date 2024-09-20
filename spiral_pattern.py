@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
-# Function to plot the Gaussian Mixture Model (GMM) distribution
+#Plotting functions to visualize output
 def plot_gmm(Mu, Sigma, ax=None):
     if ax is None:
         ax = plt.gca()
@@ -21,32 +21,35 @@ def plot_gmm(Mu, Sigma, ax=None):
         ax.add_patch(ell)
         ax.scatter(*mean, color='r', zorder=5)
 
-# Function to plot the trajectory
 def plot_trajectory(trajectory, ax=None):
     if ax is None:
         ax = plt.gca()
     
-    # Plot the trajectory
     ax.plot(trajectory[0, :], trajectory[1, :], 'b-', lw=2, label="Spiral Trajectory")
     
     ax.set_aspect('equal')
     ax.legend()
     ax.set_title("Trajectory")
 
-# Function to plot the control inputs
 def plot_control_inputs(control_inputs, ax=None):
     if ax is None:
         ax = plt.gca()
-    
+
+    # Plot both x and y components of the control inputs
+    fig, ax = plt.subplots(figsize=(8, 4))
     timesteps = np.arange(len(control_inputs))
-    
-    # Plot the control inputs over time
-    ax.plot(timesteps, np.linalg.norm(control_inputs, axis=1), 'g-', lw=2, label="Control Inputs (Velocity Magnitude)")
-    
+
+    # Plot the x and y components separately
+    ax.plot(timesteps, control_inputs[:, 0], 'r-', lw=1, label="v_x ")
+    ax.plot(timesteps, control_inputs[:, 1], 'b-', lw=1, label="v_y ")
+
+    # Add labels and legend
     ax.set_xlabel("Time Steps")
-    ax.set_ylabel("Velocity Magnitude")
-    ax.set_title("Control Inputs")
+    ax.set_ylabel("Velocity Components")
+    ax.set_title("Control Inputs (Velocity Components)")
     ax.legend()
+
+    plt.show()
 
 # Parameters definition
 param = lambda: None
@@ -71,36 +74,34 @@ sigma1_tmp = np.array([[0.3], [0.1]])
 param.Sigma[:, :, 0] = sigma1_tmp @ sigma1_tmp.T * 5e-1 + np.identity(param.nbVarX) * 5e-3 
 sigma2_tmp = np.array([[0.1], [0.2]])
 param.Sigma[:, :, 1] = sigma2_tmp @ sigma2_tmp.T * 3e-1 + np.identity(param.nbVarX) * 1e-2 
-print(param.Sigma)
 
-
+# Generate the transformation matrices for each Gaussian (to match spiral trajectory with GMM)
 U = np.zeros((2, 2, param.nbStates))
 for i in range(param.nbStates):
     # Perform eigendecomposition
     D, V = np.linalg.eigh(param.Sigma[:, :, i])
        
-    # Reconstruct U as V * sqrt(D) * V.T (eigenvectors scaled by the square root of eigenvalues)
+    # Reconstruct U 
     U[:, :, i] = V @ np.diag(np.sqrt(D))
 
-# Generate spiral trajectory
+#Trajectory generation
+#Generate 2D spiral trajectory
 t = np.linspace(0, param.b * np.pi, param.nbData)  # Angle
 r = np.linspace(0, 1, param.nbData)  # Radius
 
-# 2D spiral
 x0 = np.vstack((r * np.sin(t), r * np.cos(t)))  # x0 is the base spiral in 2D
 
-# Patterned exploration based on spirals and Gaussian transformations
+#Transform the spirals to match the GMM using U
 x = np.zeros((param.nbVarX, 1))
 for i in range(param.nbStates):
     transformed_spiral = U[:, :, i] @ x0 + param.Mu[:, i].reshape(-1, 1)
     x = np.hstack((x, transformed_spiral))
 
-# Control inputs calculation with u_max constraint
+#Compute control inputs to generate the trajectory (under u-max constraint)
 control_inputs = np.zeros((param.nbData - 1, param.nbVarX))
 for i in range(1, param.nbData):
     delta_pos = (x[:, i] - x[:, i - 1]) / param.dt
-    control_norm = np.linalg.norm(delta_pos)
-    delta_pos = delta_pos * (param.u_max / (control_norm + param.u_norm_reg))  # Apply u_max constraint
+    delta_pos = delta_pos * (param.u_max / (np.linalg.norm(delta_pos) + param.u_norm_reg))  # Apply u_max constraint
     
     control_inputs[i - 1] = delta_pos
 
@@ -111,6 +112,4 @@ plot_trajectory(x, ax)
 plt.show()
 
 # Plot the control inputs (velocity magnitudes over time)
-fig, ax = plt.subplots(figsize=(8, 4))
 plot_control_inputs(control_inputs, ax)
-plt.show()
