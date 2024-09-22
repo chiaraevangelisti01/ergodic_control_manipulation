@@ -1,62 +1,10 @@
-'''Merging sine initialization and ergodic control SMC DDP 2D'''
-import numpy as np
 import numpy.matlib
+import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
-
-
-# Plotting functions to visualize output
-def plot_gmm(Mu, Sigma, ax=None):
-    if ax is None:
-        ax = plt.gca()
-    
-    for i in range(Mu.shape[1]):
-        # Extract mean and covariance for each Gaussian
-        mean = Mu[:, i]
-        cov = Sigma[:, :, i]
-
-        # Create an ellipse representing the covariance
-        vals, vecs = np.linalg.eigh(cov)
-        angle = np.degrees(np.arctan2(vecs[1, 0], vecs[0, 0]))
-        width, height = 2 * np.sqrt(vals)
-        ell = Ellipse(xy=mean, width=width, height=height, angle=angle, edgecolor='r', facecolor='none', lw=2)
-
-        ax.add_patch(ell)
-        ax.scatter(*mean, color='r', zorder=5)
-
-def plot_trajectory(trajectory, ax=None):
-    if ax is None:
-        ax = plt.gca()
-    
-    ax.plot(trajectory[0, :], trajectory[1, :], 'b-', lw=2, label="Spiral Trajectory")
-    
-    ax.set_aspect('equal')
-    ax.legend()
-    ax.set_title("Trajectory")
-
-def plot_control_inputs(control_inputs, ax=None):
-    if ax is None:
-        ax = plt.gca()
-
-    # Plot both x and y components of the control inputs
-    fig, ax = plt.subplots(figsize=(8, 4))
-    timesteps = np.arange(len(control_inputs))
-
-    # Plot the x and y components separately
-    ax.plot(timesteps, control_inputs[:, 0], 'r-', lw=1, label="v_x ")
-    ax.plot(timesteps, control_inputs[:, 1], 'b-', lw=1, label="v_y ")
-
-    # Add labels and legend
-    ax.set_xlabel("Time Steps")
-    ax.set_ylabel("Velocity Components")
-    ax.set_title("Control Inputs (Velocity Components)")
-    ax.legend()
-
-    plt.show()
+import matplotlib.patches as patches
 
 # Helper functions
 # ===============================
-
 # Residuals w and Jacobians J in spectral domain
 def f_ergodic(x, param):
 	[xx,yy] = numpy.mgrid[range(param.nbFct),range(param.nbFct)]
@@ -81,9 +29,9 @@ def f_ergodic(x, param):
 
 	w = (np.sum(phi,axis=0) / param.nbData).reshape((param.nbFct**2,1))
 	J = dphi.T / param.nbData
-	return w, J
+	return w.squeeze(), J
 
-# Constructs a Hadamard matrix of size n
+# Constructs a Hadamard matrix of size n.
 def hadamard_matrix(n: int) -> np.ndarray:
     # Base case: A Hadamard matrix of size 1 is just [[1]].
     if n == 1:
@@ -106,56 +54,15 @@ def hadamard_matrix(n: int) -> np.ndarray:
 def f_domain(x,param):
     sz = param.xlim[1]/ 2
     ftmp = x - sz  # Residuals
-    f = ftmp - np.sign(ftmp) * sz
+    f = (ftmp - np.sign(ftmp) * sz)  # Bounded domain
     
     J = np.eye(param.nbVarX * param.nbData)  
     id = np.abs(ftmp) < sz
     f[id] = 0
     id_indices = np.where(id)[0]
     J[id_indices, id_indices] = 0
-   
-    return f, J
-
-# Helper function to generate the trajectory
-def modulated_sine_wave_with_transitions(param, Mu, Sigma):
-    total_trajectory = np.ones((param.nbVarX, 1))*0.1  # Initialize full trajectory
-
-    segment_length = int(np.floor(param.nbData // (2*param.nbStates-1))) +1 # Divide trajectory into segments
-    A_base = 1  # Base amplitude of sine wave
-
-    # Loop over each Gaussian state to generate its corresponding sine wave
-    for i in range(param.nbStates):
-        t = np.linspace(0, 2 * np.pi, segment_length)  # Time vector for the concerned segment
-
-        # Perform eigendecomposition to get the major and minor axes of the ellips
-        D, V = np.linalg.eigh(Sigma[:, :, i])
-
-        # Eigenvectors: V[:, 1] is the major axis, V[:, 0] is the minor axis
-        major_axis_length = 2 * np.sqrt(D[1])  # The length of the major axis
-        minor_axis_length = 2 * np.sqrt(D[0])  # The length of the minor axis
-
-        # Modulated sine wave along the major axis and oscillation along the minor axis
-        # Apply amplitude modulation: stronger in the center, weaker at the edges
-        modulation = 0.3 + 0.7 * np.sin(np.linspace(0, np.pi, segment_length))
-
-        x_segment = np.vstack((
-            np.linspace(-major_axis_length / 2, major_axis_length / 2, segment_length),  # Linear motion along the major axis
-            A_base * modulation * np.sin(6 * np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
-        ))
-
-        # Rotate the trajectory using the eigenvectors to align with the covariance ellipse
-        modulated_wave = V[:, [1, 0]] @ x_segment + Mu[:, i].reshape(-1, 1)
-
-        # Concatenate this segment to the full trajectory
-        total_trajectory = np.hstack((total_trajectory, modulated_wave))
-
-        # If there's another Gaussian, add a linear transition to the next one
-        if i < param.nbStates - 1:
-            next_mu = Mu[:, i + 1].reshape(-1, 1)
-            transition_segment = np.linspace(modulated_wave[:, -1], next_mu.flatten(), segment_length).T
-            total_trajectory = np.hstack((total_trajectory, transition_segment))
-
-    return total_trajectory
+    
+    return f.squeeze(), J
 
 
 ## Parameters
@@ -166,10 +73,12 @@ param.nbData = 200  # Number of datapoints
 param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
+param.nbAgents = 9  # Number of agents
 param.nbIter = 50  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
-param.qd = 1e0; #Bounded domain weight term
 param.r = 1e-8  # Control weight term
+param.qd = 0e4  # Bounded domain weight term
+param.Mu_ma = np.tile(np.array([[0.3], [0.9]]), (1, param.nbAgents)) # Target positions for agents
 
 param.xlim = [0,1] # Domain limit
 param.L = (param.xlim[1] - param.xlim[0]) * 2 # Size of [-param.xlim(2),param.xlim(2)]
@@ -183,6 +92,7 @@ KX = np.zeros((param.nbVarX, param.nbFct, param.nbFct))
 KX[0, :, :], KX[1, :, :] = np.meshgrid(param.range, param.range)
 param.kk = KX.reshape(param.nbVarX, param.nbFct**2) * param.om
 param.Lambda = np.power(xx**2++yy**2+1,-sp).flatten() # Weighting vector
+
 
 # Enumerate symmetry operations for 2D signal ([-1,-1],[-1,1],[1,-1] and [1,1]), and removing redundant ones -> keeping ([-1,-1],[-1,1])
 op = hadamard_matrix(2**(param.nbVarX-1))
@@ -248,44 +158,54 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 # Desired spatial distribution
 g = w_hat.T @ phim
 
-# Generate sinusoidal trajectory modulated by the GMM covariances with transitions
-x_modulated = modulated_sine_wave_with_transitions(param, param.Mu, param.Sigma)
+#Ergodic controla as a trajectory planning problem
+# =================================================
+'''TO BE MODIFIED ADDING HAFTONING'''
+# Initialize the random starting positions of the agents
+x0 = np.random.rand(param.nbVarX, param.nbAgents)  # Initial positions of agents
+# Shift the positions and assign them to param.Mu
+param.Mu_ma = np.hstack((x0[:, 1:], x0[:, :1]))
 
-# Compute control inputs to generate the trajectory 
-control_inputs = np.zeros((param.nbData - 1, param.nbVarX))
-for i in range(1, param.nbData):
-    delta_pos = (x_modulated[:, i] - x_modulated[:, i - 1]) / param.dt
-    control_inputs[i - 1] = delta_pos
+# Initial control commands
+# Initialize u to store control commands for all agents
+u = np.zeros((param.nbVarX * (param.nbData - 1), param.nbAgents))
 
-# Plot the GMM and modulated sine wave trajectory
-fig, ax = plt.subplots(figsize=(8, 8))
-plot_gmm(param.Mu, param.Sigma, ax)
-plot_trajectory(x_modulated, ax)
-plt.show()
+for m in range(param.nbAgents):
+    # Initial control commands for each agent
+    u[:, m] = np.tile((param.Mu_ma[:, m] - x0[:, m]) / ((param.nbData - 1) * param.dt), (param.nbData - 1))
 
-# Plot the control inputs (velocity magnitudes over time)
-plot_control_inputs(control_inputs, ax)
+# Initialize other matrices for agents
+x = np.zeros((param.nbVarX * param.nbData, param.nbAgents))
+fd = np.zeros((param.nbVarX * param.nbData, param.nbAgents))
+w = np.zeros((param.nbFct ** param.nbVarX, param.nbAgents))
+Jd = np.zeros((param.nbVarX * param.nbData, param.nbVarX * param.nbData, param.nbAgents))
+J = np.zeros((param.nbFct ** param.nbVarX, param.nbVarX * param.nbData, param.nbAgents))
+fdtmp = np.zeros((param.nbVarX * param.nbData, param.nbAgents))
+wtmp = np.zeros((param.nbFct ** param.nbVarX, param.nbAgents))
 
-
-# iLQR
-# ===============================
-
-u = control_inputs
-u = u.reshape((-1, 1))  # Initial control command
-
-x0 = np.array([[0.1], [0.1]])  # Initial position
-
-for i in range(param.nbIter):
-    x = Su @ u + Sx @ x0  # System evolution
-    fd, Jd = f_domain(x, param); #Residuals and Jacobians for staying within bounded domain
-    w, J = f_ergodic(x, param)  # Fourier series coefficients and Jacobian
-    f = w - w_hat  # Residual
-
-    du = np.linalg.inv(Su.T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su + R) @ (-Su.T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) - u * param.r)  # Gauss-Newton update
-   
-    cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
+# Multi-agent iLQR
+for n in range(param.nbIter):
     
-    # Log data
+    x = Sx @ x0 + Su @ u #System evolution
+    
+    for m in range(param.nbAgents):
+        
+        fd[:,m], Jd[:,:,m] = f_domain(x[:,m][:, np.newaxis], param); #Residuals and Jacobians for staying within bounded domain
+        w[:, m], J[:, :, m] = f_ergodic(x[:, m][:,np.newaxis], param)  # Fourier series coefficients and Jacobian for each agent
+   
+    w_avg = np.mean(w, axis=1)  # Average Fourier coefficients across agents
+    f = w_avg - w_hat  # Residuals for ergodic control
+
+    # Gauss-Newton update for each agent
+    for m in range(param.nbAgents):
+        a = (J[:, :, m].T @ Q @ J[:, :, m])
+        a.shape()
+        print(Jd[:, :, m].T @ Qd @ Jd[:, :, m]).shape()
+        du = np.linalg.inv(Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m]) + R) @ (-Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd) - u[:, m] * param.r)
+
+    cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
+           
+	# Log data
     logs.x += [x]  # Save trajectory in state space
     logs.w += [w]  # Save Fourier coefficients along trajectory
     logs.g += [w.T @ phim]  # Save reconstructed spatial distribution (for visualization)
@@ -296,12 +216,18 @@ for i in range(param.nbIter):
     while True:
         utmp = u + du * alpha
         xtmp = Sx @ x0 + Su @ utmp
-        fdtmp, _ = f_domain(xtmp, param)
-        wtmp, _ = f_ergodic(xtmp, param)
-        ftmp = wtmp - w_hat 
+        
+        for m in range(param.nbAgents):
+        
+            wtmp[:, m], _ = f_ergodic(x[:, m], param)  # Fourier series coefficients and Jacobian for each agent
+            fdtmp[:, m] , _= f_domain(xtmp[:, m],param)  # Residuals and Jacobians for staying within bounded domain
+        
+        wtmp = np.mean(wtmp, axis=1)  # Average Fourier coefficients across agents
+        ftmp = wtmp - w_hat  # Residuals for ergodic control
+        
         cost = ftmp.T @ Q @ ftmp +  np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r
         if cost < cost0 or alpha < 1e-3:
-            print(f"Iteration {i}, cost: {cost.squeeze()}")
+            print("Iteration {}, cost: {}".format(i, cost.squeeze()))
             break
         alpha /= 2
     
@@ -313,41 +239,60 @@ for i in range(param.nbIter):
 # Plots
 # ===============================
 
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Initialize figure
 plt.figure(figsize=(16, 8))
 
-# x
-plt.subplot(2, 3, 1)
+# Plot the spatial distribution g(x)
+plt.subplot(1, 4, 1)
 X = np.squeeze(xm[0, :, :])
 Y = np.squeeze(xm[1, :, :])
 G = np.reshape(g, [nbRes, nbRes])  # original distribution
 G = np.where(G > 0, G, 0)
+
+# Plot the spatial distribution as a contour plot
 plt.contourf(X, Y, G, cmap="gray_r")
-plt.plot(logs.x[0][0::2], logs.x[0][1::2], linestyle="-", color=[.7, .7, .7], label="Initial")
-plt.plot(logs.x[-1][0::2], logs.x[-1][1::2], linestyle="-", color=[0, 0, 0], label="Final")
+
+# Loop through each agent and plot its initial and final trajectories
+for m in range(param.nbAgents):
+    plt.plot(logs.x[0][0::2, m], logs.x[0][1::2, m], linestyle="-", color=[.7, .7, .7], label="Initial" if m == 0 else None)
+    plt.plot(logs.x[-1][0::2, m], logs.x[-1][1::2, m], linestyle="-", color=[0, 0, 0], label="Final" if m == 0 else None)
+    plt.plot(logs.x[-1][0, m], logs.x[-1][1, m], marker="o", markersize=5, color=[0, 0, 0])
+
+# Plot the target positions
+plt.plot(param.Mu[0, :], param.Mu[1, :], 'x', markersize=6, linewidth=4, color=[0, .6, 0], label="Target")
 plt.axis("scaled")
-plt.legend()
 plt.title("Spatial distribution g(x)")
+plt.legend()
 plt.xticks([])
 plt.yticks([])
 
-# w_hat
-plt.subplot(2, 3, 2)
+# Plot the desired Fourier coefficients w_hat
+plt.subplot(1, 4, 2)
 plt.title(r"Desired Fourier coefficients $\hat{w}$")
 plt.imshow(np.reshape(w_hat, [param.nbFct, param.nbFct]).T, cmap="gray_r")
 plt.xticks([])
 plt.yticks([])
 
-# w
-plt.subplot(2, 3, 3)
+# Plot the reproduced Fourier coefficients w
+plt.subplot(1, 4, 3)
 plt.title(r"Reproduced Fourier coefficients $w$")
-plt.imshow(np.reshape(logs.w[-1] / param.nbData, [param.nbFct, param.nbFct]).T, cmap="gray_r")
+plt.imshow(np.reshape(np.mean(logs.w[-1], axis=1) / param.nbData, [param.nbFct, param.nbFct]).T, cmap="gray_r")
 plt.xticks([])
 plt.yticks([])
 
-# error
-plt.subplot(2, 1, 2)
-plt.xlabel("n", fontsize=16)
-plt.ylabel(r"$\epsilon$", fontsize=16)
+# Plot the cost/error over iterations
+plt.subplot(1, 4, 4)
 plt.plot(logs.e, color=[0, 0, 0])
+plt.title("Cost over iterations")
+plt.xlabel("Iteration")
+plt.ylabel(r"Cost $\epsilon$")
+plt.grid(True)
 
+# Show the plot
+plt.tight_layout()
 plt.show()
+
+
