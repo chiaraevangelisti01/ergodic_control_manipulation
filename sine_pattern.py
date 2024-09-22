@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.matlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
@@ -63,10 +64,7 @@ param.nbStates = 2  # Number of Gaussians in GMM
 param.dt = 1e-2  # Time step length
 param.xlim = [0, 1]  # Domain limits
 param.L = (param.xlim[1] - param.xlim[0]) * 2  # Size of [-param.xlim(2), param.xlim(2)]
-param.a = 5  # Spiral parameter for radius growth
-param.b = 16  # Spiral parameter for the angle
-param.u_max = 4.0  # Maximum allowed velocity
-param.u_norm_reg = 1e-3  # Regularization term for control inputs
+
 
 # Desired spatial distribution represented as a mixture of Gaussians
 param.Mu = np.zeros((2, 2))

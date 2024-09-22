@@ -3,7 +3,7 @@ import numpy as np
 import numpy.matlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-from scipy.sparse import eye as speye
+
 
 # Plotting functions to visualize output
 def plot_gmm(Mu, Sigma, ax=None):
@@ -116,6 +116,48 @@ def f_domain(x,param):
    
     return f, J
 
+# Helper function to generate the trajectory
+def modulated_sine_wave_with_transitions(param, Mu, Sigma):
+    total_trajectory = np.ones((param.nbVarX, 1))*0.1  # Initialize full trajectory
+
+    segment_length = int(np.floor(param.nbData // (2*param.nbStates-1))) +1 # Divide trajectory into segments
+    A_base = 1  # Base amplitude of sine wave
+
+    # Loop over each Gaussian state to generate its corresponding sine wave
+    for i in range(param.nbStates):
+        t = np.linspace(0, 2 * np.pi, segment_length)  # Time vector for the concerned segment
+
+        # Perform eigendecomposition to get the major and minor axes of the ellips
+        D, V = np.linalg.eigh(Sigma[:, :, i])
+
+        # Eigenvectors: V[:, 1] is the major axis, V[:, 0] is the minor axis
+        major_axis_length = 2 * np.sqrt(D[1])  # The length of the major axis
+        minor_axis_length = 2 * np.sqrt(D[0])  # The length of the minor axis
+
+        # Modulated sine wave along the major axis and oscillation along the minor axis
+        # Apply amplitude modulation: stronger in the center, weaker at the edges
+        modulation = 0.3 + 0.7 * np.sin(np.linspace(0, np.pi, segment_length))
+
+        x_segment = np.vstack((
+            np.linspace(-major_axis_length / 2, major_axis_length / 2, segment_length),  # Linear motion along the major axis
+            A_base * modulation * np.sin(6 * np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
+        ))
+
+        # Rotate the trajectory using the eigenvectors to align with the covariance ellipse
+        modulated_wave = V[:, [1, 0]] @ x_segment + Mu[:, i].reshape(-1, 1)
+
+        # Concatenate this segment to the full trajectory
+        total_trajectory = np.hstack((total_trajectory, modulated_wave))
+
+        # If there's another Gaussian, add a linear transition to the next one
+        if i < param.nbStates - 1:
+            next_mu = Mu[:, i + 1].reshape(-1, 1)
+            transition_segment = np.linspace(modulated_wave[:, -1], next_mu.flatten(), segment_length).T
+            total_trajectory = np.hstack((total_trajectory, transition_segment))
+
+    return total_trajectory
+
+
 ## Parameters
 # ===============================
 
@@ -206,33 +248,19 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 # Desired spatial distribution
 g = w_hat.T @ phim
 
-# Trajectory generation using the spiral pattern initialization
-t = np.linspace(0, param.nbFct * np.pi, int(param.nbData/param.nbStates))  # Angle
-r = np.linspace(0, 1,int(param.nbData/param.nbStates))  # Radius
-
-x0 = np.vstack((r * np.sin(t), r * np.cos(t)))  # x0 is the base spiral in 2D
-
-# Transform the spirals to match the GMM using U
-x = np.ones((param.nbVarX, 1))*0.1
-U = np.zeros((2, 2, param.nbStates))  # Ensure U is defined here
-for i in range(param.nbStates):
-    # Perform eigendecomposition
-    D, V = np.linalg.eigh(param.Sigma[:, :, i])
-    U[:, :, i] = V @ np.diag(np.sqrt(D))
-
-    transformed_spiral = U[:, :, i] @ x0 + param.Mu[:, i].reshape(-1, 1)
-    x = np.hstack((x, transformed_spiral))
+# Generate sinusoidal trajectory modulated by the GMM covariances with transitions
+x_modulated = modulated_sine_wave_with_transitions(param, param.Mu, param.Sigma)
 
 # Compute control inputs to generate the trajectory 
 control_inputs = np.zeros((param.nbData - 1, param.nbVarX))
 for i in range(1, param.nbData):
-    delta_pos = (x[:, i] - x[:, i - 1]) / param.dt
+    delta_pos = (x_modulated[:, i] - x_modulated[:, i - 1]) / param.dt
     control_inputs[i - 1] = delta_pos
 
-# Plot the GMM and trajectory
+# Plot the GMM and modulated sine wave trajectory
 fig, ax = plt.subplots(figsize=(8, 8))
 plot_gmm(param.Mu, param.Sigma, ax)
-plot_trajectory(x, ax)
+plot_trajectory(x_modulated, ax)
 plt.show()
 
 # Plot the control inputs (velocity magnitudes over time)
