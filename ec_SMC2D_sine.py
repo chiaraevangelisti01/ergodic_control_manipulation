@@ -281,6 +281,8 @@ for i in range(param.nbIter):
     w, J = f_ergodic(x, param)  # Fourier series coefficients and Jacobian
     f = w - w_hat  # Residual
 
+    print(Su.shape, J.shape, Jd.shape, Q.shape, R.shape, Qd.shape, f.shape, fd.shape, u.shape)
+
     du = np.linalg.inv(Su.T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su + R) @ (-Su.T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) - u * param.r)  # Gauss-Newton update
    
     cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost

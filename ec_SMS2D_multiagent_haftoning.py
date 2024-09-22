@@ -62,7 +62,7 @@ def f_domain(x,param):
     id_indices = np.where(id)[0]
     J[id_indices, id_indices] = 0
     
-    return f.squeeze(), J
+    return f, J
 
 
 ## Parameters
@@ -73,7 +73,7 @@ param.nbData = 200  # Number of datapoints
 param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
-param.nbAgents = 9  # Number of agents
+param.nbAgents = 2  # Number of agents
 param.nbIter = 50  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
 param.r = 1e-8  # Control weight term
@@ -128,6 +128,7 @@ Qd = np.eye(param.nbData * param.nbVarX) * param.qd
 R = np.eye((param.nbData-1) * param.nbVarX) * param.r # Control weight matrix (at trajectory level)
 
 
+
 # Compute Fourier series coefficients w_hat of desired spatial distribution
 # =========================================================================
 # Explicit description of w_hat by exploiting the Fourier transform properties of Gaussians (optimized version by exploiting symmetries)
@@ -158,6 +159,35 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 # Desired spatial distribution
 g = w_hat.T @ phim
 
+# Myopic ergodic control (for initialisation)
+# ===============================
+u_max = 4e0 # Maximum speed allowed
+u_norm_reg = 1e-3 
+
+xt = np.array([[0.1],[0.1]]) # Initial position
+wt = np.zeros((param.nbFct**param.nbVarX,1))
+u = np.zeros((param.nbData-1,param.nbVarX)) # Initial control command
+
+for t in range(param.nbData-1):
+	phi1 = np.cos(xt @ param.kk1.T) / param.L # In 1D
+	dphi1 = - np.sin(xt @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbVarX,1) / param.L # in 1D
+
+	phi = (phi1[0,xx.flatten()] * phi1[1,yy.flatten()]).reshape((-1,1)) # Fourier basis function
+	dphi = np.vstack((
+		dphi1[0,xx.flatten()] * phi1[1,yy.flatten()],
+		phi1[0,xx.flatten()] * dphi1[1,yy.flatten()]
+	)) # Gradient of Fourier basis functions
+
+	wt = wt + phi
+	w = wt / (t+1) #w are the Fourier series coefficients along trajectory 
+
+	# Controller with constrained velocity norm
+	u_t = -dphi @ np.diag(param.Lambda) @ (w-w_hat)
+	u_t = u_t * u_max / (np.linalg.norm(u_t)+u_norm_reg) # Velocity command
+	u[t] = u_t.T
+	xt = xt + u_t * param.dt # Update of position
+
+
 #Ergodic controla as a trajectory planning problem
 # =================================================
 '''TO BE MODIFIED ADDING HAFTONING'''
@@ -166,8 +196,11 @@ x0 = np.random.rand(param.nbVarX, param.nbAgents)  # Initial positions of agents
 # Shift the positions and assign them to param.Mu
 param.Mu_ma = np.hstack((x0[:, 1:], x0[:, :1]))
 
+
 # Initial control commands
 # Initialize u to store control commands for all agents
+u = np.tile(u, (1, param.nbAgents))
+du = np.zeros((param.nbVarX * (param.nbData - 1), param.nbAgents))
 u = np.zeros((param.nbVarX * (param.nbData - 1), param.nbAgents))
 
 for m in range(param.nbAgents):
@@ -182,6 +215,7 @@ Jd = np.zeros((param.nbVarX * param.nbData, param.nbVarX * param.nbData, param.n
 J = np.zeros((param.nbFct ** param.nbVarX, param.nbVarX * param.nbData, param.nbAgents))
 fdtmp = np.zeros((param.nbVarX * param.nbData, param.nbAgents))
 wtmp = np.zeros((param.nbFct ** param.nbVarX, param.nbAgents))
+xtmp = np.zeros((param.nbVarX * param.nbData, param.nbAgents))
 
 # Multi-agent iLQR
 for n in range(param.nbIter):
@@ -190,26 +224,23 @@ for n in range(param.nbIter):
     
     for m in range(param.nbAgents):
         
-        fd[:,m], Jd[:,:,m] = f_domain(x[:,m][:, np.newaxis], param); #Residuals and Jacobians for staying within bounded domain
-        w[:, m], J[:, :, m] = f_ergodic(x[:, m][:,np.newaxis], param)  # Fourier series coefficients and Jacobian for each agent
+        fd[:,m], Jd[:,:,m] = f_domain(x[:,m], param); #Residuals and Jacobians for staying within bounded domain
+        w[:, m], J[:, :, m] = f_ergodic(x[:, m].reshape(-1,1), param)  # Fourier series coefficients and Jacobian for each agent
    
     w_avg = np.mean(w, axis=1)  # Average Fourier coefficients across agents
     f = w_avg - w_hat  # Residuals for ergodic control
 
     # Gauss-Newton update for each agent
     for m in range(param.nbAgents):
-        a = (J[:, :, m].T @ Q @ J[:, :, m])
-        a.shape()
-        print(Jd[:, :, m].T @ Qd @ Jd[:, :, m]).shape()
-        du = np.linalg.inv(Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m]) + R) @ (-Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd) - u[:, m] * param.r)
-
+        du[:,m] = np.linalg.inv(Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m])@ Su + R) @ (-Su.T @ (J[:, :, m].T @ Q @ f[:,m] + Jd[:, :, m].T @ Qd @ fd[:,m]) - u[:, m] * param.r)
+   
     cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
            
 	# Log data
     logs.x += [x]  # Save trajectory in state space
     logs.w += [w]  # Save Fourier coefficients along trajectory
     logs.g += [w.T @ phim]  # Save reconstructed spatial distribution (for visualization)
-    logs.e += [cost0.squeeze()]  # Save reconstruction error
+    logs.e += [np.mean(cost0).squeeze()]  # Save reconstruction error
 
     # Estimate step size with backtracking line search method
     alpha = 1
@@ -218,16 +249,15 @@ for n in range(param.nbIter):
         xtmp = Sx @ x0 + Su @ utmp
         
         for m in range(param.nbAgents):
-        
-            wtmp[:, m], _ = f_ergodic(x[:, m], param)  # Fourier series coefficients and Jacobian for each agent
+            wtmp[:, m], _ = f_ergodic(xtmp[:, m].reshape(-1,1), param)  # Fourier series coefficients and Jacobian for each agent
             fdtmp[:, m] , _= f_domain(xtmp[:, m],param)  # Residuals and Jacobians for staying within bounded domain
         
-        wtmp = np.mean(wtmp, axis=1)  # Average Fourier coefficients across agents
-        ftmp = wtmp - w_hat  # Residuals for ergodic control
+        wtmp_avg = np.mean(wtmp, axis=1)  # Average Fourier coefficients across agents
+        ftmp = wtmp_avg - w_hat  # Residuals for ergodic control
         
         cost = ftmp.T @ Q @ ftmp +  np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r
-        if cost < cost0 or alpha < 1e-3:
-            print("Iteration {}, cost: {}".format(i, cost.squeeze()))
+        if (cost < cost0).all or alpha < 1e-3:
+            print("Iteration {}, cost: {}".format(n, np.mean(cost).squeeze()))
             break
         alpha /= 2
     
@@ -238,9 +268,6 @@ for n in range(param.nbIter):
 
 # Plots
 # ===============================
-
-import matplotlib.pyplot as plt
-import numpy as np
 
 # Initialize figure
 plt.figure(figsize=(16, 8))
