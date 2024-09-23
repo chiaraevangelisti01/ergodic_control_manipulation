@@ -159,34 +159,6 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 # Desired spatial distribution
 g = w_hat.T @ phim
 
-# Myopic ergodic control (for initialisation)
-# ===============================
-u_max = 4e0 # Maximum speed allowed
-u_norm_reg = 1e-3 
-
-xt = np.array([[0.1],[0.1]]) # Initial position
-wt = np.zeros((param.nbFct**param.nbVarX,1))
-u = np.zeros((param.nbData-1,param.nbVarX)) # Initial control command
-
-for t in range(param.nbData-1):
-	phi1 = np.cos(xt @ param.kk1.T) / param.L # In 1D
-	dphi1 = - np.sin(xt @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbVarX,1) / param.L # in 1D
-
-	phi = (phi1[0,xx.flatten()] * phi1[1,yy.flatten()]).reshape((-1,1)) # Fourier basis function
-	dphi = np.vstack((
-		dphi1[0,xx.flatten()] * phi1[1,yy.flatten()],
-		phi1[0,xx.flatten()] * dphi1[1,yy.flatten()]
-	)) # Gradient of Fourier basis functions
-
-	wt = wt + phi
-	w = wt / (t+1) #w are the Fourier series coefficients along trajectory 
-
-	# Controller with constrained velocity norm
-	u_t = -dphi @ np.diag(param.Lambda) @ (w-w_hat)
-	u_t = u_t * u_max / (np.linalg.norm(u_t)+u_norm_reg) # Velocity command
-	u[t] = u_t.T
-	xt = xt + u_t * param.dt # Update of position
-
 
 #Ergodic controla as a trajectory planning problem
 # =================================================
@@ -199,7 +171,7 @@ param.Mu_ma = np.hstack((x0[:, 1:], x0[:, :1]))
 
 # Initial control commands
 # Initialize u to store control commands for all agents
-u = np.tile(u, (1, param.nbAgents))
+u = np.zeros((param.nbVarX * (param.nbData - 1), param.nbAgents))
 du = np.zeros((param.nbVarX * (param.nbData - 1), param.nbAgents))
 u = np.zeros((param.nbVarX * (param.nbData - 1), param.nbAgents))
 
