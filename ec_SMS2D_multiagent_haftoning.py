@@ -167,7 +167,7 @@ g = w_hat.T @ phim
 # Initialize the random starting positions of the agents
 eh_iterations = 300
 image_path = "C:/Users/Chiara/Documents/CHIARA/Scuola/UNIVERSITA/MAGISTRALE/Semester_III/Semestral project/ergodic_control_manipulation/dog_grey.jpg"
-halftoning = ElectrostaticHalftoning(param.nbAgents, image_path,eh_iterations)
+halftoning = ElectrostaticHalftoning(param.nbAgents, image_path, param.xlim, param.xlim, eh_iterations)
 x0 = halftoning.run()
 #x0 = np.random.rand(param.nbVarX, param.nbAgents)  # Initial positions of agents
 # Shift the positions and assign them to param.Mu

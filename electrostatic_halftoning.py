@@ -6,13 +6,15 @@ from PIL import Image
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path, num_iterations = 250, target_resolution=(13, 13), displacement_threshold=7e-3):
+    def __init__(self, num_agents, image_path,xdom, ydom, num_iterations = 250, target_resolution=(13, 13), displacement_threshold=7e-3):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
         self.num_iterations = num_iterations
         self.displacement_threshold = displacement_threshold  # Convergence threshold
         self.target_resolution = target_resolution  # Target resolution for the image processing
+        self.xdom = xdom #Application domain on x
+        self.ydom = ydom #Application domain on y
         
         self.nbVarX = 2  # 2D state space for x, y coordinates
         
@@ -261,6 +263,19 @@ class ElectrostaticHalftoning:
         sampled_particles = final_particles[:, sampled_indices]
     
         return sampled_particles
+    
+    
+    def scale_positions(self,positions,xlow, xup, ylow, yup):
+        '''Scale agent positions to a new domain [xlow, xup] * [ylow, yup]'''
+    
+        # Scale the x coordinates
+        positions[0,:] = (positions[0, :] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * (xup - xlow) + xlow
+        
+        # Scale the y coordinates
+        positions[1,:] = (positions[1, :] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * (yup - ylow) + ylow
+        
+        # Return the scaled positions as a 2xN array
+        return positions
 
 
     def run(self):
@@ -284,10 +299,12 @@ class ElectrostaticHalftoning:
 
         # Evolve the particles
         final_particles, positions_over_time, converged = self.evolve_particles()
-
         self.plot_positions(positions_over_time)
 
+        # Sample agents from the final particles and scale their positions to the application domain
         agents = self.sample_agents(final_particles)
+        agents = self.scale_positions(agents, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
+        print(agents)
 
         return agents
 
