@@ -239,6 +239,7 @@ class ElectrostaticHalftoning:
 
     
     def plot_force_field(self):
+        '''Plot the force field as a vector field -> for debugging'''
 
         # Generate the grid points
         grid_points_x, grid_points_y = np.meshgrid(np.arange(self.xlim[0], self.xlim[1]),np.arange(self.ylim[0], self.ylim[1]))
@@ -249,6 +250,17 @@ class ElectrostaticHalftoning:
         # Adjust plot settings
         plt.gca().invert_yaxis()
         plt.show()
+    
+    def sample_agents(self,final_particles):
+        '''Sample a given number of agenys from the particles array at random'''
+        
+        # Randomly choose indices for the particles to sample (without replacement)
+        sampled_indices = np.random.choice(self.required_particles, self.num_agents, replace=False)
+        
+        # Select the columns corresponding to the sampled indices
+        sampled_particles = final_particles[:, sampled_indices]
+    
+        return sampled_particles
 
 
     def run(self):
@@ -266,7 +278,6 @@ class ElectrostaticHalftoning:
         
         #Compute the force field (plot for debugging)
         self.forcefield = self.compute_force_field()
-        self.plot_force_field()
         
         # Initialize particles in the  domain
         self.particles = self.initialize_particles()
@@ -276,17 +287,17 @@ class ElectrostaticHalftoning:
 
         self.plot_positions(positions_over_time)
 
-        return final_particles, converged
+        agents = self.sample_agents(final_particles)
+
+        return agents
 
 # Example usages
-num_agents = 50
-num_iterations =500
-#image = np.random.rand(15, 15)  # Synthetic grid of random values for grayscale image
+# num_agents = 50
+# num_iterations =500
 
-image_path ="C:/Users/Chiara/Documents/CHIARA/Scuola/UNIVERSITA/MAGISTRALE/Semester_III/Semestral project/ergodic_control_manipulation/dog_grey.jpg"
+# image_path ="C:/Users/Chiara/Documents/CHIARA/Scuola/UNIVERSITA/MAGISTRALE/Semester_III/Semestral project/ergodic_control_manipulation/dog_grey.jpg"
 
-halftoning = ElectrostaticHalftoning(num_agents, image_path,num_iterations)
-final_positions, has_converged = halftoning.run()
+# halftoning = ElectrostaticHalftoning(num_agents, image_path,num_iterations)
+# agents = halftoning.run()
+# print(agents.shape)
 
-if has_converged:
-    print("The system has converged.")

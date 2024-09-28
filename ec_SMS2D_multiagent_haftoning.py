@@ -2,6 +2,7 @@ import numpy.matlib
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from electrostatic_halftoning import ElectrostaticHalftoning
 
 # Helper functions
 # ===============================
@@ -74,7 +75,7 @@ param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbAgents = 2  # Number of agents
-param.nbIter = 50  # Maximum number of iterations for iLQR
+param.nbIter = 150  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
 param.r = 1e-8  # Control weight term
 param.qd = 0e4  # Bounded domain weight term
@@ -160,11 +161,15 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 g = w_hat.T @ phim
 
 
-#Ergodic controla as a trajectory planning problem
+#Ergodic control as a trajectory planning problem
 # =================================================
-'''TO BE MODIFIED ADDING HAFTONING'''
+'''HALFTONING INITIALIZATION'''
 # Initialize the random starting positions of the agents
-x0 = np.random.rand(param.nbVarX, param.nbAgents)  # Initial positions of agents
+eh_iterations = 300
+image_path = "C:/Users/Chiara/Documents/CHIARA/Scuola/UNIVERSITA/MAGISTRALE/Semester_III/Semestral project/ergodic_control_manipulation/dog_grey.jpg"
+halftoning = ElectrostaticHalftoning(param.nbAgents, image_path,eh_iterations)
+x0 = halftoning.run()
+#x0 = np.random.rand(param.nbVarX, param.nbAgents)  # Initial positions of agents
 # Shift the positions and assign them to param.Mu
 param.Mu_ma = np.hstack((x0[:, 1:], x0[:, :1]))
 
