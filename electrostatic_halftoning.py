@@ -312,9 +312,9 @@ class ElectrostaticHalftoning:
 # num_agents = 50
 # num_iterations =500
 
-# image_path ="C:/Users/Chiara/Documents/CHIARA/Scuola/UNIVERSITA/MAGISTRALE/Semester_III/Semestral project/ergodic_control_manipulation/dog_grey.jpg"
+# image_path = "dog_grey.jpg"
 
-# halftoning = ElectrostaticHalftoning(num_agents, image_path,num_iterations)
+# halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
 # agents = halftoning.run()
 # print(agents.shape)
 
