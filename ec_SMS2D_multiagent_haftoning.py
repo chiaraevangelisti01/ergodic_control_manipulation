@@ -17,34 +17,24 @@ def f_ergodic(x, param):
     x1_s = x[0::2]
     x2_s = x[1::2]
     
-    # Print x1_s and x2_s
-    print("x1_s:", x1_s)
-    print("x2_s:", x2_s)
-    
     phi1[:,:,0] = np.cos(x1_s @ param.kk1.T) / param.L
     dphi1[:,:,0] = -np.sin(x1_s @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbData, 1) / param.L
     
     phi1[:,:,1] = np.cos(x2_s @ param.kk1.T) / param.L
     dphi1[:,:,1] = -np.sin(x2_s @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbData, 1) / param.L
+
     
-    # Print phi1 to check its values after calculation
-    #print("phi1:", phi1)
+    phi = phi1[:, xx, 0] * phi1[:, yy, 1]
     
-    phi = phi1[:, xx.flatten(), 0] * phi1[:, yy.flatten(), 1]
+    phi = phi.reshape(param.nbData, -1, order ='F')
     
     dphi = np.zeros((param.nbData * param.nbVarX, param.nbFct ** 2))
-    dphi[0::2, :] = dphi1[:, xx.flatten(), 0] * phi1[:, yy.flatten(), 1]
-    dphi[1::2, :] = phi1[:, xx.flatten(), 0] * dphi1[:, yy.flatten(), 1]
     
-    # Print intermediate dphi values
-   #print("dphi:", dphi)
+    dphi[0::2, :] = (dphi1[:, xx, 0] * phi1[:, yy, 1]).reshape(param.nbData, -1, order ='F')
+    dphi[1::2, :] = (phi1[:, xx, 0] * dphi1[:, yy, 1]).reshape(param.nbData, -1, order ='F')
     
-    w = (np.sum(phi, axis=0) / param.nbData).reshape((param.nbFct ** 2, 1))
+    w = (np.sum(phi, axis=0) / param.nbData)
     J = dphi.T / param.nbData
-    
-    # Print the final w and J values
-    #print("w:", w)
-    #print("J:", J)
     
     return w, J
 
@@ -93,7 +83,7 @@ def f_reach(x, Mu, param):
 # ===============================
 
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 200  # Number of datapoints
+param.nbData = 100  # Number of datapoints
 param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
@@ -242,37 +232,33 @@ for n in range(param.nbIter):
     
     x = Sx @ x0 + Su @ u #System evolution
     
-    
     for m in range(param.nbAgents):
         
         fr[:,m], Jr[:,:,m] = f_reach(x[idx-1,m].squeeze(), param.Mu_ma[:,m],param); #Residuals and Jacobians for reaching target
         fd[:,m], Jd[:,:,m] = f_domain(x[:,m], param); #Residuals and Jacobians for staying within bounded domain
-        #w[:, m], J[:, :, m] =  # Fourier series coefficients and Jacobian for each agent
-        
-        if n == 0 and m ==0:
-            f_ergodic(x[:, m].reshape(-1,1), param)
-       
-
+        w[:, m], J[:, :, m] =  f_ergodic(x[:, m].reshape(-1,1), param) # Fourier series coefficients and Jacobian for each agent
     
-
+    
     w_avg = np.mean(w, axis=1)  # Average Fourier coefficients across agents
-
-    # if n ==0:
-    #     print("wavg: ", w_avg)
+    w_avg = w_avg.reshape(-1,1)
        
     f = w_avg - w_hat  # Residuals for ergodic controlb  
-
+    
     # Gauss-Newton update for each agent
     for m in range(param.nbAgents):
-        #du[:,m] = np.linalg.inv(Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m])@ Su + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R) @ (-Su.T @ (J[:, :, m].T @ Q @ f[:,m] + Jd[:, :, m].T @ Qd @ fd[:,m]) - Sr.T @Jr[:, :, m].T @ Qr @ fr[:,m] - u[:, m] * param.r)
-        du[:, m], _, _, _ = scipy.linalg.lstsq(
-            Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m]) @ Su
-            + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R,
-            -Su.T @ (J[:, :, m].T @ Q @ f[:,m] + Jd[:, :, m].T @ Qd @ fd[:, m])
-            - Sr.T @ Jr[:, :, m].T @ Qr @ fr[:, m]
-            - u[:, m] * param.r)
+        
+        
+        du[:,m] = (np.linalg.inv(Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m])@ Su + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R) @ (-Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd[:,m].reshape(-1,1)) - Sr.T @Jr[:, :, m].T @ Qr @ fr[:,m].reshape(-1,1) - u[:, m].reshape(-1,1) * param.r)).squeeze()
+        # #du[:, m], _, _, _ = scipy.linalg.lstsq(
+        #     Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m]) @ Su
+        #     + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R,
+        #     -Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd[:, m].reshape(-1,1))
+        #     - Sr.T @ Jr[:, :, m].T @ Qr @ fr[:, m]
+        #     - u[:, m] * param.r)
 
+   
     cost0 = f.T @ Q @ f + np.linalg.norm(fr)**2*param.qr+ np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
+
            
 	# Log data
     logs.x += [x]  # Save trajectory in state space
@@ -285,6 +271,7 @@ for n in range(param.nbIter):
     while True:
         utmp = u + du * alpha
         xtmp = Sx @ x0 + Su @ utmp
+    
         
         for m in range(param.nbAgents):
             wtmp[:, m], _ = f_ergodic(xtmp[:, m].reshape(-1,1), param)  # Fourier series coefficients and Jacobian for each agent
@@ -292,6 +279,7 @@ for n in range(param.nbIter):
             frtmp[:, m] , _= f_reach(xtmp[idx-1, m],param.Mu_ma[:,m],param)  # Residuals and Jacobians for 
 
         wtmp_avg = np.mean(wtmp, axis=1)  # Average Fourier coefficients across agents
+        wtmp_avg = wtmp_avg.reshape(-1,1)
         ftmp = wtmp_avg - w_hat  # Residuals for ergodic control
         
         cost = ftmp.T @ Q @ ftmp +  np.linalg.norm(frtmp)**2 * param.qr + np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r
