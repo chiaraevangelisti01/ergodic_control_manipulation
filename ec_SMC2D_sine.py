@@ -140,7 +140,7 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
 
         x_segment = np.vstack((
             np.linspace(-major_axis_length / 2, major_axis_length / 2, segment_length),  # Linear motion along the major axis
-            A_base * modulation * np.sin(6 * np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
+            A_base * modulation * np.sin(2 * np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
         ))
 
         # Rotate the trajectory using the eigenvectors to align with the covariance ellipse
@@ -182,7 +182,7 @@ sp = (param.nbVarX + 1) / 2 # Sobolev norm parameter
 KX = np.zeros((param.nbVarX, param.nbFct, param.nbFct))
 KX[0, :, :], KX[1, :, :] = np.meshgrid(param.range, param.range)
 param.kk = KX.reshape(param.nbVarX, param.nbFct**2) * param.om
-param.Lambda = np.power(xx**2++yy**2+1,-sp).flatten() # Weighting vector
+param.Lambda = np.power(xx**2+yy**2+1,-sp).flatten() # Weighting vector
 
 # Enumerate symmetry operations for 2D signal ([-1,-1],[-1,1],[1,-1] and [1,1]), and removing redundant ones -> keeping ([-1,-1],[-1,1])
 op = hadamard_matrix(2**(param.nbVarX-1))
@@ -280,8 +280,6 @@ for i in range(param.nbIter):
     fd, Jd = f_domain(x, param); #Residuals and Jacobians for staying within bounded domain
     w, J = f_ergodic(x, param)  # Fourier series coefficients and Jacobian
     f = w - w_hat  # Residual
-
-    print(Su.shape, J.shape, Jd.shape, Q.shape, R.shape, Qd.shape, f.shape, fd.shape, u.shape)
 
     du = np.linalg.inv(Su.T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su + R) @ (-Su.T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) - u * param.r)  # Gauss-Newton update
    

@@ -2,7 +2,7 @@ import numpy.matlib
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from electrostatic_halftoning import ElectrostaticHalftoning
+from electrostatic_halftoning_opt import ElectrostaticHalftoning
 import scipy
 
 # Helper functions
@@ -78,6 +78,22 @@ def f_reach(x, Mu, param):
     J = np.eye(param.nbVarX * param.nbPoints)  # Jacobian
     return f, J
 
+def save_plot(xm,g,nbRes,image_name):
+    # Create a new figure
+    plt.figure(figsize=(8, 6))
+
+    # Plot the spatial distribution g(x)
+    X = np.squeeze(xm[0, :, :])
+    Y = np.squeeze(xm[1, :, :])
+    G = np.reshape(g, [nbRes, nbRes])  # original distribution
+    G = np.where(G > 0, G, 0)
+
+    # Plot the spatial distribution as a contour plot
+    plt.contourf(X, Y, G, cmap="gray_r")
+
+    # Save the plot as a PNG file
+    plt.savefig(image_name)
+
 
 ## Parameters
 # ===============================
@@ -88,7 +104,7 @@ param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
-param.nbAgents = 2  # Number of agents
+param.nbAgents = 9  # Number of agents
 param.nbIter = 50  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
 param.r = 1e-7  # Control weight term
@@ -195,13 +211,13 @@ g = w_hat.T @ phim
 # =================================================
 '''HALFTONING INITIALIZATION'''
 # Initialize the random starting positions of the agents
+image_path = "spatial_distribution"
+save_plot(xm,g,nbRes,image_path)
+
 eh_iterations = 300
-image_path = "C:/Users/Chiara/Documents/CHIARA/Scuola/UNIVERSITA/MAGISTRALE/Semester_III/Semestral project/ergodic_control_manipulation/dog_grey.jpg"
-# = ElectrostaticHalftoning(param.nbAgents, image_path, param.xlim, param.xlim, eh_iterations)
-#x0 = halftoning.run()
-#x0 = np.random.rand(param.nbVarX, param.nbAgents)
-x0 = np.array([[0.2, 0.6],  # x-coordinates for each agent
-               [0.5, 0.7]]) # y-coordinates for each agent
+halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".png", param.xlim, param.xlim, eh_iterations)
+x0 = halftoning.run()
+x0 = np.random.rand(param.nbVarX, param.nbAgents)
 
 # Shift the positions and assign them to param.Mu
 param.Mu_ma = np.hstack((x0[:, 1:], x0[:, :1]))

@@ -6,7 +6,7 @@ from PIL import Image
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path,xdom, ydom, num_iterations = 250, target_resolution=(10, 10), displacement_threshold=1e-2):
+    def __init__(self, num_agents, image_path,xdom, ydom, num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-2):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
@@ -38,75 +38,66 @@ class ElectrostaticHalftoning:
 
     def number_particles(self):
         ''' Compute required number of particles to maintain the average grey value of the input image'''
-        required_particles = 0
-        for i in range(self.image.shape[0]):  # Iterate over rows
-            for j in range(self.image.shape[1]):  # Iterate over columns
-                u_x = self.image[i, j]
-                required_particles += (1-u_x )
-        
-        return int(np.round(required_particles))
-
-
-    def compute_force(self, p, g):
-        '''Compute the force between two points p and g'''
-        # Calculate force between two points (Coulomb's law-like)
-        direction_vector = np.array(g) - np.array(p) # Vector from p to g (when forcefield p is the particle and g is the source of attraction)
-        magnitude = np.linalg.norm(direction_vector) # Distance between the two points
-        
-        if magnitude == 0:
-            return np.array([0, 0])  # No force if distance is 0 (same point)
-        else:
-            unit_vector = direction_vector / magnitude  # Unit vector in the direction of the force
-        
-       #Force magnitude 1/r , charges set to 1 to obtain neutrality
-        force = unit_vector / (magnitude)  # Coulomb force with inverse law --> NOT SQUARE BECAUSE 2D
-        
-        return force
+        return int(np.round(np.sum(1 - self.image)))
 
 
     def compute_force_field(self):
-        '''Store force field attractive force for each grid point'''
-        grid_points = np.array(np.meshgrid(np.arange(self.xlim[0], self.xlim[1]), np.arange(self.ylim[0], self.ylim[1])))
-        forcefield = np.zeros((grid_points.shape[1], grid_points.shape[2], 2))  #  2D forces
+        '''Compute the force field using vectorized operations.'''
 
-        for ip, jp in np.ndindex(grid_points.shape[1], grid_points.shape[2]):  # Imaginary charge moving over the grid
-            p = np.array([ip, jp])  
-            
-            for ig, jg in np.ndindex(grid_points.shape[1], grid_points.shape[2]): 
-                
-                if (ip, jp) != (ig, jg):  # Avoid self-interaction
-                    g = np.array([ig, jg])  
-                    
-                    # Include image influence: darker areas exert stronger attractive force
-                    flipped_ig = self.image.shape[0] - ig - 1 #image has inverted y-axis compared to grid_points
-                    grey_value = self.image[flipped_ig, jg] # Grey value at position g
+        x_grid, y_grid = np.meshgrid(np.arange(self.xlim[0], self.xlim[1]), np.arange(self.ylim[0], self.ylim[1]), indexing='ij')
 
-                    forcefield[ip, jp] += self.compute_force(p, g)* ((1 - grey_value)*1) # Scale by grey value
-                               
-        return forcefield
+        # Stack the grid coordinates into shape (grid_size, 2) where each row is a point [x, y]
+        grid_points = np.stack([x_grid, y_grid], axis=-1)  # Shape: (n_x, n_y, 2)
+
+        # Reshape the grid points to (N, 2) where N = n_x * n_y for easy broadcasting
+        grid_points_flat = grid_points.reshape(-1, 2)  # Shape: (N, 2)
+
+        # Compute pairwise differences (each point with every other point)
+        deltas = grid_points_flat[:, np.newaxis, :] - grid_points_flat[np.newaxis, :, :]  # Shape: (N, N, 2)
+
+        distances = np.linalg.norm(deltas, axis=-1)
+        np.fill_diagonal(distances, np.inf) # Avoid division by zero by setting diagonal (self-interaction) to infinit
+
+        unit_vectors = deltas / distances[:, :, np.newaxis]  # Shape: (N, N, 2)
+        forces = unit_vectors /distances[:, :, np.newaxis]  # Shape: (N, N, 2)
+
+        flipped_image = np.flipud(self.image)  # Flip image y-axis to match the grid points
+
+        # Reshape the flipped_image to a 1D array, add 2 dimensions (2d forcefield, broadcast for multiplication
+        grey_values_flat = (1 - flipped_image).reshape(-1)  # Shape: (N,)
+        grey_values_stacked = np.stack([grey_values_flat] * 2, axis=-1)  # Shape: (N, 2)
+        grey_values_broadcasted = grey_values_stacked[:, np.newaxis, :]  # Shape: (N, N, 2)
+
+        # Element-wise multiply the grayscale values with the forcefield contributions
+        forcefield_contribution = forces * grey_values_broadcasted
+
+        total_forces = forcefield_contribution.sum(axis=0)  # get the total force acting on each point
+        total_forces = total_forces.reshape(grid_points.shape)  # Reshape total forces back to grid shape (n_x, n_y, 2)
+
+        return total_forces
+
     
-   
     def initialize_particles(self):
-        '''Initialize particles in the image randomly'''
+        '''Initialize particles in the image randomly, optimizing based on gray values'''
 
-        particles = np.zeros((self.nbVarX, self.required_particles)) 
-        max_grey = np.max(self.image)
-        i = 0
-    
-        for i in range(self.required_particles):
-            attempts = 0
-            while True:
-                x = np.random.randint(0, self.image.shape[0])
-                y = np.random.randint(0, self.image.shape[1])
-                if (x, y) not in particles.T and np.random.uniform(0, max_grey) > self.image[self.image.shape[0]-x-1, y]:
-                    particles[:, i] = [x, y]  
-                    break
-                attempts += 1
-                if attempts > 1000:  # Avoid infinite loop
-                    particles[:, i] = [x, y]
-                    break
-    
-        return particles
+        # Pre-calculate all valid pixel positions with their corresponding gray values
+        x_indices, y_indices = np.indices(self.image.shape)  # Generate all coordinates
+        valid_pixels = np.column_stack((x_indices.flatten(), y_indices.flatten()))  # List of all coordinates
+        gray_values = self.image.flatten()  # Flatten the grayscale image to match coordinates
+        
+        # Maximym grey value
+        max_grey = np.max(gray_values)
+        
+        # Apply probability filtering based on the grayscale values, ensuring that darker pixels have a higher chance
+        probabilities = 1 - gray_values / max_grey  # Convert grey values to probabilities
+        
+        # Randomly choose the required number of particles based on these probabilities
+        selected_indices = np.random.choice(len(valid_pixels), size=self.required_particles, p=probabilities/np.sum(probabilities), replace=False)
+
+        # Extract the corresponding coordinates for the selected indices
+        particles = valid_pixels[selected_indices].T
+        
+        return particles.astype(np.float64)
 
 
     def bilinear_interpolation(self, forcefield, p):
@@ -136,9 +127,28 @@ class ElectrostaticHalftoning:
         fxy = fx0 * (1 - ty) + fx1 * ty
         return fxy
 
+
+    def compute_force_all(self, particles):
+        '''Compute force between all particles at once using vectorized operations in 2D space'''
+        
+        # Compute pairwise differences between all particles (delta = r_i - r_j)
+        delta = particles[:, :, None] - particles[:, None, :]
+        
+        # Compute Euclidean distances between particles
+        distances = np.linalg.norm(delta, axis=0)
+
+        # Avoid division by zero for self-particles
+        np.fill_diagonal(distances, np.inf)
+        
+        # Unit vector, coulomb law in 1d (1/distance^2), broadcasting to apply force direction
+        forces = delta / distances**2
+        
+        # Sum the forces for each particle
+        return np.sum(forces, axis=2)
+
     
     def evolve_particles(self):
-        '''Compute particle movement'''
+        '''Compute particle movement in parallel using vectorized operations'''
         positions_over_time = []
         tau = 0.006  # Step size, reduce it for more fine-grained movement
         shaking_strength = 0.001  # Shaking strength
@@ -146,30 +156,21 @@ class ElectrostaticHalftoning:
 
         for iteration in range(self.num_iterations):
             max_displacement = 0  
+
+            # Calculate repuslive forces for all particles at once
+            forces = self.compute_force_all(self.particles)
             
             for i, p in enumerate(self.particles.T):
-                
                 p_old = p.copy()  
-                
-                #Attractive force from the grid --> it was already computed influence from the entire grid
-                forcep = self.bilinear_interpolation(self.forcefield, p)
-                # if iteration % 30 == 0:
-                #     print( "Attraction",forcep)
-                
-                tot = np.array([0.0, 0.0])
-                for j, q in enumerate(self.particles.T):
-                    if i != j:
-                        forcep -= self.compute_force(p, q) #Repulsive forces are negative
-                        tot -= self.compute_force(p, q)
 
-                # if iteration % 30 == 0:
-                print("Repulsion",tot) 
-                #         print( "Total",forcep)
-                quit()
-                      
+                # Apply bilinear interpolation for attractive forces
+                attractive_force = self.bilinear_interpolation(self.forcefield, p)
+                
+                # Combine repulsive and attractive forces
+                total_force = forces[:, i] + attractive_force
 
                 # Update particle position
-                self.particles[:, i] = p + tau * forcep
+                self.particles[:, i] = p + tau * total_force
 
                 # Calculate displacement by comparing with the old position (before update)
                 displacement = np.linalg.norm(self.particles[:, i] - p_old)
@@ -210,7 +211,7 @@ class ElectrostaticHalftoning:
         
         for i, positions in enumerate(positions_over_time):
             ax.scatter(positions[1, :], positions[0, :], label=f"Iteration {i+1}",
-                    s=15,  # Marker size
+                    s=6,  # Marker size
                     color=color(i / num_iterations), 
                     alpha=0.2 + (0.8 * (i / num_iterations)))  # Alpha increases with iterations
         
@@ -307,18 +308,16 @@ class ElectrostaticHalftoning:
         agents = self.sample_agents(final_particles)
         agents = self.scale_positions(agents, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
         
-
         return agents
 
-#Example usages
-num_agents = 50
-num_iterations =500
+# #Example usages
+# num_agents = 50
+# num_iterations =350
 
-#image_path = "black_circle.png"
-image_path = "dog_grey.jpg"
+# #image_path = "black_circle.png"
+# image_path = "dog_grey.jpg"
 
+# halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
+# agents = halftoning.run()
 
-halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
-agents = halftoning.run()
-print(agents.shape)
 

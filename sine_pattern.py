@@ -64,6 +64,9 @@ param.nbStates = 2  # Number of Gaussians in GMM
 param.dt = 1e-2  # Time step length
 param.xlim = [0, 1]  # Domain limits
 param.L = (param.xlim[1] - param.xlim[0]) * 2  # Size of [-param.xlim(2), param.xlim(2)]
+param.u_max = 4.0  # Maximum allowed velocity
+param.u_norm_reg = 1e-3  # Regularization term for control inputs
+
 
 
 # Desired spatial distribution represented as a mixture of Gaussians
@@ -101,7 +104,7 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
 
         x_segment = np.vstack((
             np.linspace(-major_axis_length / 2, major_axis_length / 2, segment_length),  # Linear motion along the major axis
-            A_base * modulation * np.sin(6 * np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
+            A_base * modulation * np.sin(2.5 * np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
         ))
 
         # Rotate the trajectory using the eigenvectors to align with the covariance ellipse
