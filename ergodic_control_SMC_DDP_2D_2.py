@@ -1,58 +1,18 @@
-'''Merging spiral initialization and ergodic control SMC DDP 2D'''
-import numpy as np
+'''
+Trajectory optimization for ergodic control problem 
+
+Copyright (c) 2023 Idiap Research Institute <https://www.idiap.ch/>
+Written by Jérémy Maceiras <jeremy.maceiras@idiap.ch> and
+Sylvain Calinon <https://calinon.ch>
+
+This file is part of RCFS <https://robotics-codes-from-scratch.github.io/>
+License: GPL-3.0-only
+'''
+
 import numpy.matlib
+import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
-from scipy.sparse import eye as speye
-
-# Plotting functions to visualize output
-def plot_gmm(Mu, Sigma, ax=None):
-    if ax is None:
-        ax = plt.gca()
-    
-    for i in range(Mu.shape[1]):
-        # Extract mean and covariance for each Gaussian
-        mean = Mu[:, i]
-        cov = Sigma[:, :, i]
-
-        # Create an ellipse representing the covariance
-        vals, vecs = np.linalg.eigh(cov)
-        angle = np.degrees(np.arctan2(vecs[1, 0], vecs[0, 0]))
-        width, height = 2 * np.sqrt(vals)
-        ell = Ellipse(xy=mean, width=width, height=height, angle=angle, edgecolor='r', facecolor='none', lw=2)
-
-        ax.add_patch(ell)
-        ax.scatter(*mean, color='r', zorder=5)
-
-def plot_trajectory(trajectory, ax=None):
-    if ax is None:
-        ax = plt.gca()
-    
-    ax.plot(trajectory[0, :], trajectory[1, :], 'b-', lw=2, label="Spiral Trajectory")
-    
-    ax.set_aspect('equal')
-    ax.legend()
-    ax.set_title("Trajectory")
-
-def plot_control_inputs(control_inputs, ax=None):
-    if ax is None:
-        ax = plt.gca()
-
-    # Plot both x and y components of the control inputs
-    fig, ax = plt.subplots(figsize=(8, 4))
-    timesteps = np.arange(len(control_inputs))
-
-    # Plot the x and y components separately
-    ax.plot(timesteps, control_inputs[:, 0], 'r-', lw=1, label="v_x ")
-    ax.plot(timesteps, control_inputs[:, 1], 'b-', lw=1, label="v_y ")
-
-    # Add labels and legend
-    ax.set_xlabel("Time Steps")
-    ax.set_ylabel("Velocity Components")
-    ax.set_title("Control Inputs (Velocity Components)")
-    ax.legend()
-
-    plt.show()
+import matplotlib.patches as patches
 
 # Helper functions
 # ===============================
@@ -83,7 +43,7 @@ def f_ergodic(x, param):
 	J = dphi.T / param.nbData
 	return w, J
 
-# Constructs a Hadamard matrix of size n
+# Constructs a Hadamard matrix of size n.
 def hadamard_matrix(n: int) -> np.ndarray:
     # Base case: A Hadamard matrix of size 1 is just [[1]].
     if n == 1:
@@ -102,7 +62,6 @@ def hadamard_matrix(n: int) -> np.ndarray:
 
     return h
 
-#Residuals f and Jacobians J for staying within bounded domain
 def f_domain(x,param):
     sz = param.xlim[1]/ 2
     ftmp = x - sz  # Residuals
@@ -125,12 +84,12 @@ def f_reach(x ,param):
 ## Parameters
 # ===============================
 
-param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 200  # Number of datapoints
-param.nbVarX = 2  # State space dimension
-param.nbFct = 8  # Number of Fourier basis functions
-param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
-param.nbIter = 50  # Number of iLQR iterations
+param = lambda: None # Lazy way to define an empty class in python
+param.nbData = 200 # Number of datapoints
+param.nbVarX = 2 # State space dimension
+param.nbFct = 8 # Number of Fourier basis functsions
+param.nbStates = 2 # Number of Gaussians to represent the spatial distribution
+param.nbIter = 50 # Maximum number of iterations for iLQR
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
 param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
@@ -148,14 +107,16 @@ sp = (param.nbVarX + 1) / 2 # Sobolev norm parameter
 KX = np.zeros((param.nbVarX, param.nbFct, param.nbFct))
 KX[0, :, :], KX[1, :, :] = np.meshgrid(param.range, param.range)
 param.kk = KX.reshape(param.nbVarX, param.nbFct**2) * param.om
-param.Lambda = np.power(xx**2+yy**2+1,-sp).flatten() # Weighting vector
+param.Lambda = np.power(xx**2++yy**2+1,-sp).flatten() # Weighting vector
 
 # Time occurrence of viapoints
 tl = np.linspace(1, param.nbData, param.nbPoints + 1)
 tl = np.round(tl[1:]).astype(int)  
 idx = (tl - 1) * param.nbVarX + np.arange(1, param.nbVarX + 1).reshape(-1, 1)
 idx= idx.flatten()
+
 param.Mu_reach = np.array([[0.3],[0.9]]) #Target to reach
+
 
 # Enumerate symmetry operations for 2D signal ([-1,-1],[-1,1],[1,-1] and [1,1]), and removing redundant ones -> keeping ([-1,-1],[-1,1])
 op = hadamard_matrix(2**(param.nbVarX-1))
@@ -223,98 +184,98 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 # Desired spatial distribution
 g = w_hat.T @ phim
 
-# Trajectory generation using the spiral pattern initialization
-t = np.linspace(0, param.nbFct * np.pi, int(param.nbData/param.nbStates))  # Angle
-r = np.linspace(0, 1,int(param.nbData/param.nbStates))  # Radius
+# Myopic ergodic control (for initialisation)
+# ===============================
+u_max = 4e0 # Maximum speed allowed
+u_norm_reg = 1e-3 
 
-x0 = np.vstack((r * np.sin(t), r * np.cos(t)))  # x0 is the base spiral in 2D
+xt = np.array([[0.1],[0.1]]) # Initial position
+wt = np.zeros((param.nbFct**param.nbVarX,1))
+#u = np.zeros((param.nbData-1,param.nbVarX)) # Initial control command
+u = np.random.uniform(-u_max, u_max, (param.nbData-1, param.nbVarX))
 
-# Transform the spirals to match the GMM using U
-x = np.ones((param.nbVarX, 1))*0.1
-U = np.zeros((2, 2, param.nbStates))  # Ensure U is defined here
-for i in range(param.nbStates):
-    # Perform eigendecomposition
-    D, V = np.linalg.eigh(param.Sigma[:, :, i])
-    U[:, :, i] = V @ np.diag(np.sqrt(D))
+# for t in range(param.nbData-1):
+# 	phi1 = np.cos(xt @ param.kk1.T) / param.L # In 1D
+# 	dphi1 = - np.sin(xt @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbVarX,1) / param.L # in 1D
 
-    transformed_spiral = U[:, :, i] @ x0 + param.Mu[:, i].reshape(-1, 1)
-    x = np.hstack((x, transformed_spiral))
+# 	phi = (phi1[0,xx.flatten()] * phi1[1,yy.flatten()]).reshape((-1,1)) # Fourier basis function
+# 	dphi = np.vstack((
+# 		dphi1[0,xx.flatten()] * phi1[1,yy.flatten()],
+# 		phi1[0,xx.flatten()] * dphi1[1,yy.flatten()]
+# 	)) # Gradient of Fourier basis functions
 
-# Compute control inputs to generate the trajectory 
-control_inputs = np.zeros((param.nbData - 1, param.nbVarX))
-for i in range(1, param.nbData):
-    delta_pos = (x[:, i] - x[:, i - 1]) / param.dt
-    control_inputs[i - 1] = delta_pos
+# 	wt = wt + phi
+# 	w = wt / (t+1) #w are the Fourier series coefficients along trajectory 
 
-# Plot the GMM and trajectory
-fig, ax = plt.subplots(figsize=(8, 8))
-plot_gmm(param.Mu, param.Sigma, ax)
-plot_trajectory(x, ax)
-plt.show()
-
-# Plot the control inputs (velocity magnitudes over time)
-plot_control_inputs(control_inputs, ax)
-
+# 	# Controller with constrained velocity norm
+# 	u_t = -dphi @ np.diag(param.Lambda) @ (w-w_hat)
+# 	u_t = u_t * u_max / (np.linalg.norm(u_t)+u_norm_reg) # Velocity command
+# 	u[t] = u_t.T
+# 	xt = xt + u_t * param.dt # Update of position
 
 # iLQR
 # ===============================
 
-u = control_inputs
-u = u.reshape((-1, 1))  # Initial control command
+u = u.reshape((-1,1)) # Initial control command
+#u = (u + np.random.normal(size=(len(u),1))).reshape((-1,1))
 
-x0 = np.array([[0.1], [0.1]])  # Initial position
+x0 = np.array([[0.1],[0.1]]) # Initial position
+
 
 for i in range(param.nbIter):
-    x = Su @ u + Sx @ x0  # System evolution
-    fd, Jd = f_domain(x, param); #Residuals and Jacobians for staying within bounded domain
-    w, J = f_ergodic(x, param)  # Fourier series coefficients and Jacobian
-    fr, Jr = f_reach(x[idx-1], param) # Reach target
-    f = w - w_hat  # Residual
+	x = Su @ u + Sx @ x0 # System evolution
+	fd, Jd = f_domain(x, param)
+	w, J = f_ergodic(x, param) # Fourier series coefficients and Jacobian
+	fr, Jr = f_reach(x[idx-1], param) # Reach target
+	f = w - w_hat # Residual
 
-    du = np.linalg.inv(Su.T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su + Sr.T @ Jr.T @ Qr @ Jr @ Sr + R) @ (-Su.T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) - Sr.T @ Jr.T @ Qr @ fr - u * param.r) # Gauss-Newton update
-   
-    cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2 * param.qd + np.linalg.norm(fr)**2 * param.qr+ np.linalg.norm(u)**2 * param.r # Cost
+	du = np.linalg.inv(Su.T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su + Sr.T @ Jr.T @ Qr @ Jr @ Sr + R) @ (-Su.T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) - Sr.T @ Jr.T @ Qr @ fr - u * param.r) # Gauss-Newton update
+	
+	cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2 * param.qd + np.linalg.norm(fr)**2 * param.qr+ np.linalg.norm(u)**2 * param.r # Cost
+	
+	# Log data
+	logs.x += [x] # Save trajectory in state space
+	logs.w += [w] # Save Fourier coefficients along trajectory
+	logs.g += [w.T @ phim] # Save reconstructed spatial distribution (for visualization)
+	logs.e += [cost0.squeeze()] # Save reconstruction error
+
+	
+	# Estimate step size with backtracking line search method
+	alpha = 1
     
-    # Log data
-    logs.x += [x]  # Save trajectory in state space
-    logs.w += [w]  # Save Fourier coefficients along trajectory
-    logs.g += [w.T @ phim]  # Save reconstructed spatial distribution (for visualization)
-    logs.e += [cost0.squeeze()]  # Save reconstruction error
+	while True:
+		utmp = u + du * alpha
+		xtmp = Sx @ x0 + Su @ utmp
+		fdtmp, _ = f_domain(xtmp, param)  # Residuals and Jacobians for staying within bounded domain
+		frtmp, _ = f_reach(xtmp[idx-1], param)  # Residuals and Jacobians for reaching target
+		wtmp, _ = f_ergodic(xtmp, param)
+		
+		ftmp = wtmp - w_hat 
+		cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
+		if cost < cost0 or alpha < 1e-3:
+			print("Iteration {}, cost: {}".format(i, cost.squeeze()))
+			break
+		alpha /= 2
+	
+	u = u + du * alpha
 
-    # Estimate step size with backtracking line search method
-    alpha = 1
-    while True:
-        utmp = u + du * alpha
-        xtmp = Sx @ x0 + Su @ utmp
-        fdtmp, _ = f_domain(xtmp, param)
-        frtmp, _ = f_reach(xtmp[idx-1], param)  # Residuals and Jacobians for reaching target
-        wtmp, _ = f_ergodic(xtmp, param)
-        ftmp = wtmp - w_hat 
-        cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
-        if cost < cost0 or alpha < 1e-3:
-            print(f"Iteration {i}, cost: {cost.squeeze()}")
-            break
-        alpha /= 2
-    
-    u = u + du * alpha
-
-    if np.linalg.norm(du * alpha) < 1E-2:
-        break  # Stop iLQR iterations when solution is reached
+	if np.linalg.norm(du * alpha) < 1E-2:
+		break # Stop iLQR iterations when solution is reached
 
 # Plots
 # ===============================
 
-plt.figure(figsize=(16, 8))
+plt.figure(figsize=(16,8))
 
 # x
-plt.subplot(2, 3, 1)
+plt.subplot(2,3,1)
 X = np.squeeze(xm[0, :, :])
 Y = np.squeeze(xm[1, :, :])
 G = np.reshape(g, [nbRes, nbRes])  # original distribution
 G = np.where(G > 0, G, 0)
 plt.contourf(X, Y, G, cmap="gray_r")
-plt.plot(logs.x[0][0::2], logs.x[0][1::2], linestyle="-", color=[.7, .7, .7], label="Initial")
-plt.plot(logs.x[-1][0::2], logs.x[-1][1::2], linestyle="-", color=[0, 0, 0], label="Final")
+plt.plot(logs.x[0][0::2],logs.x[0][1::2], linestyle="-", color=[.7,.7,.7],label="Initial")
+plt.plot(logs.x[-1][0::2],logs.x[-1][1::2], linestyle="-", color=[0,0,0],label="Final")
 plt.axis("scaled")
 plt.legend()
 plt.title("Spatial distribution g(x)")
@@ -322,23 +283,23 @@ plt.xticks([])
 plt.yticks([])
 
 # w_hat
-plt.subplot(2, 3, 2)
+plt.subplot(2,3,2)
 plt.title(r"Desired Fourier coefficients $\hat{w}$")
 plt.imshow(np.reshape(w_hat, [param.nbFct, param.nbFct]).T, cmap="gray_r")
 plt.xticks([])
 plt.yticks([])
 
 # w
-plt.subplot(2, 3, 3)
+plt.subplot(2,3,3)
 plt.title(r"Reproduced Fourier coefficients $w$")
 plt.imshow(np.reshape(logs.w[-1] / param.nbData, [param.nbFct, param.nbFct]).T, cmap="gray_r")
 plt.xticks([])
 plt.yticks([])
 
 # error
-plt.subplot(2, 1, 2)
-plt.xlabel("n", fontsize=16)
-plt.ylabel(r"$\epsilon$", fontsize=16)
-plt.plot(logs.e, color=[0, 0, 0])
+plt.subplot(2,1,2)
+plt.xlabel("n",fontsize=16)
+plt.ylabel("$\epsilon$",fontsize=16)
+plt.plot(logs.e,color=[0,0,0])
 
 plt.show()

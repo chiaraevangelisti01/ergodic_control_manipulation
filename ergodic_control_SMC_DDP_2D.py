@@ -26,6 +26,8 @@ def f_ergodic(x, param):
 
 	x1_s = x[0::2]
 	x2_s = x[1::2]
+	print(x.shape)
+	print(x1_s.shape)
 
 	phi1[:,:,0] = np.cos(x1_s @ param.kk1.T) / param.L
 	dphi1[:,:,0] = - np.sin(x1_s @ param.kk1.T) * np.matlib.repmat(param.kk1.T,param.nbData,1) / param.L
@@ -192,7 +194,7 @@ for i in range(param.nbIter):
 	f = w - w_hat # Residual
 
 	du = np.linalg.inv(Su.T @ J.T @ Q @ J @ Su + R) @ (-Su.T @ J.T @ Q @ f - u * param.r) # Gauss-Newton update
-	
+	print(du.shape)
 	cost0 = f.T @ Q @ f + np.linalg.norm(u)**2 * param.r # Cost
 	
 	# Log data

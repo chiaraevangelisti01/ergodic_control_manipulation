@@ -104,7 +104,7 @@ param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
-param.nbAgents = 9  # Number of agents
+param.nbAgents = 30  # Number of agents
 param.nbIter = 50  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
 param.r = 1e-7  # Control weight term
@@ -212,12 +212,15 @@ g = w_hat.T @ phim
 '''HALFTONING INITIALIZATION'''
 # Initialize the random starting positions of the agents
 image_path = "spatial_distribution"
-save_plot(xm,g,nbRes,image_path)
-
+#save_plot(xm,g,nbRes,image_path)
+image_path = "dog_grey"
 eh_iterations = 300
-halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".png", param.xlim, param.xlim, eh_iterations)
+halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".jpg", param.xlim, param.xlim, eh_iterations)
 x0 = halftoning.run()
-x0 = np.random.rand(param.nbVarX, param.nbAgents)
+#x0 = np.random.rand(param.nbVarX, param.nbAgents)
+# c = (np.array([[1],[1]])*param.xlim[1]/2).reshape(-1,1)
+# x0 = np.tile(c,param.nbAgents)
+
 
 # Shift the positions and assign them to param.Mu
 param.Mu_ma = np.hstack((x0[:, 1:], x0[:, :1]))
@@ -307,6 +310,7 @@ for n in range(param.nbIter):
     u = u + du * alpha
 
     if np.linalg.norm(du * alpha) < 1E-2:
+        print("Converged at iteration {}".format(n))
         break  # Stop iLQR iterations when solution is reached
 
 # Plots

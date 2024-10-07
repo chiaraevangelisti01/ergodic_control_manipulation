@@ -116,6 +116,12 @@ def f_domain(x,param):
    
     return f, J
 
+def f_reach(x ,param):
+    
+    f = x - param.Mu_reach  # Residuals
+    J = np.eye(param.nbVarX * param.nbPoints)  # Jacobian
+    return f, J
+
 # Helper function to generate the trajectory
 def modulated_sine_wave_with_transitions(param, Mu, Sigma):
     total_trajectory = np.ones((param.nbVarX, 1))*0.1  # Initialize full trajectory
@@ -164,12 +170,14 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
 param = lambda: None  # Lazy way to define an empty class in Python
 param.nbData = 200  # Number of datapoints
 param.nbVarX = 2  # State space dimension
-param.nbFct = 8  # Number of Fourier basis functions
+param.nbFct = 12  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbIter = 50  # Maximum number of iterations for iLQR
-param.dt = 1e-2  # Time step length
+param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
+param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
-param.r = 1e-8  # Control weight term
+param.qr =0e4   # Reach target weight term
+param.r = 1e-8 # Control weight term
 
 param.xlim = [0,1] # Domain limit
 param.L = (param.xlim[1] - param.xlim[0]) * 2 # Size of [-param.xlim(2),param.xlim(2)]
@@ -183,6 +191,14 @@ KX = np.zeros((param.nbVarX, param.nbFct, param.nbFct))
 KX[0, :, :], KX[1, :, :] = np.meshgrid(param.range, param.range)
 param.kk = KX.reshape(param.nbVarX, param.nbFct**2) * param.om
 param.Lambda = np.power(xx**2+yy**2+1,-sp).flatten() # Weighting vector
+
+
+# Time occurrence of viapoints
+tl = np.linspace(1, param.nbData, param.nbPoints + 1)
+tl = np.round(tl[1:]).astype(int)  
+idx = (tl - 1) * param.nbVarX + np.arange(1, param.nbVarX + 1).reshape(-1, 1)
+idx= idx.flatten()
+param.Mu_reach = np.array([[0.3],[0.9]]) #Target to reach
 
 # Enumerate symmetry operations for 2D signal ([-1,-1],[-1,1],[1,-1] and [1,1]), and removing redundant ones -> keeping ([-1,-1],[-1,1])
 op = hadamard_matrix(2**(param.nbVarX-1))
@@ -212,9 +228,11 @@ Su = np.vstack([
 	np.tril(np.kron(np.ones([param.nbData-1, param.nbData-1]), np.eye(param.nbVarX) * param.dt))
 ]) 
 Sx = np.kron(np.ones(param.nbData), np.eye(param.nbVarX)).T
+Sr = Su[idx-1, :]
 
 Q = np.diag(param.Lambda) # Precision matrix
 Qd = np.eye(param.nbData * param.nbVarX) * param.qd
+Qr = np.eye(param.nbPoints * param.nbVarX) * param.qr
 R = np.eye((param.nbData-1) * param.nbVarX) * param.r # Control weight matrix (at trajectory level)
 
 
@@ -279,11 +297,12 @@ for i in range(param.nbIter):
     x = Su @ u + Sx @ x0  # System evolution
     fd, Jd = f_domain(x, param); #Residuals and Jacobians for staying within bounded domain
     w, J = f_ergodic(x, param)  # Fourier series coefficients and Jacobian
+    fr, Jr = f_reach(x[idx-1], param) # Reach target
     f = w - w_hat  # Residual
 
-    du = np.linalg.inv(Su.T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su + R) @ (-Su.T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) - u * param.r)  # Gauss-Newton update
+    du = np.linalg.inv(Su.T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su + Sr.T @ Jr.T @ Qr @ Jr @ Sr + R) @ (-Su.T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) - Sr.T @ Jr.T @ Qr @ fr - u * param.r) # Gauss-Newton update
    
-    cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
+    cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2 * param.qd + np.linalg.norm(fr)**2 * param.qr+ np.linalg.norm(u)**2 * param.r # Cost
     
     # Log data
     logs.x += [x]  # Save trajectory in state space
@@ -297,9 +316,10 @@ for i in range(param.nbIter):
         utmp = u + du * alpha
         xtmp = Sx @ x0 + Su @ utmp
         fdtmp, _ = f_domain(xtmp, param)
+        frtmp, _ = f_reach(xtmp[idx-1], param)  # Residuals and Jacobians for reaching target
         wtmp, _ = f_ergodic(xtmp, param)
         ftmp = wtmp - w_hat 
-        cost = ftmp.T @ Q @ ftmp +  np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r
+        cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
         if cost < cost0 or alpha < 1e-3:
             print(f"Iteration {i}, cost: {cost.squeeze()}")
             break
