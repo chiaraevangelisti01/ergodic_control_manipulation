@@ -23,6 +23,7 @@ class ElectrostaticHalftoning:
         self.forcefield = None
         self.particles = None
         self.required_particles = None
+        self.agents = None
 
 
     def process_image(self,image_path):
@@ -197,21 +198,26 @@ class ElectrostaticHalftoning:
     def plot_positions(self, positions_over_time):
         '''Plot particle evolution, initial, and final positions in a single figure with subplots'''
         
-        fig, axes = plt.subplots(1, 3, figsize=(18, 6))  # Create 3 subplots side by side
+        fig, axes = plt.subplots(2, 3, figsize=(18, 6))  # Create 3 subplots side by side
 
         # Extract initial and final positions
         initial_positions = positions_over_time[0]
         final_positions = positions_over_time[-1]
+        #Underlying image (left plot)
+        ax = axes[0,0]
+        ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
+        ax.set_title("Underlying Image")
 
+        
         # Evolution over time (middle plot)
-        ax = axes[0]
+        ax = axes[0,1]
         ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
         num_iterations = len(positions_over_time)
         color = plt.cm.Blues  # Using a colormap for the evolution
         
         for i, positions in enumerate(positions_over_time):
             ax.scatter(positions[1, :], positions[0, :], label=f"Iteration {i+1}",
-                    s=6,  # Marker size
+                    s=3,  # Marker size
                     color=color(i / num_iterations), 
                     alpha=0.2 + (0.8 * (i / num_iterations)))  # Alpha increases with iterations
         
@@ -221,19 +227,37 @@ class ElectrostaticHalftoning:
         ax.grid(True)
 
         # Initial positions (left plot)
-        ax = axes[1]
+        ax = axes[0,2]
         ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
-        ax.scatter(initial_positions[1, :], initial_positions[0, :], color='red', s=30, alpha=0.8)
+        ax.scatter(initial_positions[1, :], initial_positions[0, :], color='red', s=3, alpha=0.8)
         ax.set_title("Initial Particle Positions")
         ax.set_xlim([0, self.ylim[1]])
         ax.set_ylim([0, self.xlim[1]])
         ax.grid(True)
 
         # Final positions (right plot)
-        ax = axes[2]
+        ax = axes[1,0]
         ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
-        ax.scatter(final_positions[1, :], final_positions[0, :], color='blue', s=30, alpha=0.9)
+        ax.scatter(final_positions[1, :], final_positions[0, :], color='blue', s=3, alpha=0.9)
         ax.set_title("Final Particle Positions")
+        ax.set_xlim([0, self.ylim[1]])
+        ax.set_ylim([0, self.xlim[1]])
+        ax.grid(True)
+
+        # Final particles (no image)
+        ax = axes[1,1]
+        ax.set_aspect('equal')
+        ax.scatter(final_positions[1, :], final_positions[0, :], color='black', s=3, alpha=0.9)
+        ax.set_title("Final Particle Positions no image")
+        ax.set_xlim([0, self.ylim[1]])
+        ax.set_ylim([0, self.xlim[1]])
+        ax.grid(True)
+
+        # Final particles (no image)
+        ax = axes[1,2]
+        ax.set_aspect('equal')
+        ax.scatter(self.agents[1, :], self.agents[0, :], color='green', s=3, alpha=0.9)
+        ax.set_title("Agents positions")
         ax.set_xlim([0, self.ylim[1]])
         ax.set_ylim([0, self.xlim[1]])
         ax.grid(True)
@@ -302,22 +326,24 @@ class ElectrostaticHalftoning:
 
         # Evolve the particles
         final_particles, positions_over_time, converged = self.evolve_particles()
-        self.plot_positions(positions_over_time)
+        
 
         # Sample agents from the final particles and scale their positions to the application domain
-        agents = self.sample_agents(final_particles)
-        agents = self.scale_positions(agents, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
+        self.agents = self.sample_agents(final_particles)
+        self.plot_positions(positions_over_time)
+        agents = self.scale_positions(self.agents, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
         
         return agents
 
 # #Example usages
-# num_agents = 50
-# num_iterations =350
+num_agents = 50
+num_iterations =250
 
 # #image_path = "black_circle.png"
-# image_path = "dog_grey.jpg"
+#image_path = "dog_grey.jpg"
+image_path = "skull.png"
 
-# halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
-# agents = halftoning.run()
+halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
+agents = halftoning.run()
 
 

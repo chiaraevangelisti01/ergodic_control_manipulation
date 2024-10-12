@@ -85,11 +85,13 @@ for i in range(param.nbStates):
     U[:, :, i] = V @ np.diag(np.sqrt(D))
 
 #Trajectory generation
-#Generate 2D spiral trajectory
-t = np.linspace(0, param.b * np.pi, param.nbData)  # Angle
-r = np.linspace(0, 1, param.nbData)  # Radius
+#Generate 2D spiral trajectory -> invert vector orders to make it from the center to the outsides 
+t = np.linspace(param.b * np.pi, 0, param.nbData)  # Angle 
+r = np.linspace(1, 0, param.nbData)  # Radius
+direction =  1 #clockiwise (set -1 to make it counter-clockwise)
 
-x0 = np.vstack((r * np.sin(t), r * np.cos(t)))  # x0 is the base spiral in 2D
+
+x0 = np.vstack((direction*r * np.sin(0.3*t), r * np.cos(0.3*t)))  # x0 is the base spiral in 2D
 
 #Transform the spirals to match the GMM using U
 x = np.zeros((param.nbVarX, 1))

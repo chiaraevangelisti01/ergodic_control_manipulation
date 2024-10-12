@@ -103,8 +103,8 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
         modulation = 0.3 + 0.7 * np.sin(np.linspace(0, np.pi, segment_length))
 
         x_segment = np.vstack((
-            np.linspace(-major_axis_length / 2, major_axis_length / 2, segment_length),  # Linear motion along the major axis
-            A_base * modulation * np.sin(2.5 * np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
+            np.linspace(+major_axis_length / 2, -major_axis_length / 2, segment_length),  # Linear motion along the major axis
+            A_base * modulation * np.sin( np.pi * t) * minor_axis_length / 2  # Oscillation along the minor axis with smoother modulation
         ))
 
         # Rotate the trajectory using the eigenvectors to align with the covariance ellipse
@@ -116,7 +116,9 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
         # If there's another Gaussian, add a linear transition to the next one
         if i < param.nbStates - 1:
             next_mu = Mu[:, i + 1].reshape(-1, 1)
-            transition_segment = np.linspace(modulated_wave[:, -1], next_mu.flatten(), segment_length).T
+            D, V = np.linalg.eigh(Sigma[:, :, i+1])
+            next_begin = next_mu + V[:, 1].reshape(-1, 1) * major_axis_length / 2
+            transition_segment = np.linspace(modulated_wave[:, -1], next_begin.flatten(), segment_length).T
             total_trajectory = np.hstack((total_trajectory, transition_segment))
 
     return total_trajectory

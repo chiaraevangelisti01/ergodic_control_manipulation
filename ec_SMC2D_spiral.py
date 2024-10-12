@@ -223,11 +223,12 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 # Desired spatial distribution
 g = w_hat.T @ phim
 
-# Trajectory generation using the spiral pattern initialization
-t = np.linspace(0, param.nbFct * np.pi, int(param.nbData/param.nbStates))  # Angle
-r = np.linspace(0, 1,int(param.nbData/param.nbStates))  # Radius
+# Trajectory generation using the spiral pattern initialization : invert vectors to make it from the center to the outsides
+t = np.linspace(param.nbFct * np.pi,0,int(param.nbData/param.nbStates))  # Angle
+r = np.linspace(1, 0,int(param.nbData/param.nbStates))  # Radius
+direction = 1  # Clockiwise (set -1 to make it counter-clockwise)
 
-x0 = np.vstack((r * np.sin(t), r * np.cos(t)))  # x0 is the base spiral in 2D
+x0 = np.vstack((direction* r * np.sin(0.5*t), r * np.cos(0.5*t)))  # x0 is the base spiral in 2D
 
 # Transform the spirals to match the GMM using U
 x = np.ones((param.nbVarX, 1))*0.1
