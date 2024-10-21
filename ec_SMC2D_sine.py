@@ -142,7 +142,7 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
 
         # Modulated sine wave along the major axis and oscillation along the minor axis
         # Apply amplitude modulation: stronger in the center, weaker at the edges
-        modulation = 0.3 + 0.7 * np.sin(np.linspace(0, np.pi, segment_length))
+        modulation = 4*np.sqrt(D[0])+   np.sin(np.linspace(0, np.pi, segment_length))
 
         x_segment = np.vstack((
             np.linspace(+major_axis_length / 2, -major_axis_length / 2, segment_length),  # Linear motion along the major axis
@@ -172,7 +172,7 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
 param = lambda: None  # Lazy way to define an empty class in Python
 param.nbData = 200  # Number of datapoints
 param.nbVarX = 2  # State space dimension
-param.nbFct = 12  # Number of Fourier basis functions
+param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbIter = 50  # Maximum number of iterations for iLQR
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
@@ -323,7 +323,8 @@ for i in range(param.nbIter):
         ftmp = wtmp - w_hat 
         cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
         if cost < cost0 or alpha < 1e-3:
-            print(f"Iteration {i}, cost: {cost.squeeze()}")
+            #print(f"Iteration {i}, cost: {cost.squeeze()}")
+            print(cost.squeeze())
             break
         alpha /= 2
     

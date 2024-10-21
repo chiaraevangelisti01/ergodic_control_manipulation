@@ -126,7 +126,7 @@ def f_reach(x ,param):
 # ===============================
 
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 200  # Number of datapoints
+param.nbData = 500  # Number of datapoints
 param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
@@ -293,7 +293,8 @@ for i in range(param.nbIter):
         ftmp = wtmp - w_hat 
         cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
         if cost < cost0 or alpha < 1e-3:
-            print(f"Iteration {i}, cost: {cost.squeeze()}")
+            #print(f"Iteration {i}, cost: {cost.squeeze()}")
+            print(cost.squeeze())
             break
         alpha /= 2
     

@@ -4,6 +4,8 @@ import matplotlib.image as mpimg  # For loading the image
 from scipy.ndimage import zoom  # Import zoom for resampling
 from PIL import Image
 
+import time
+
 class ElectrostaticHalftoning:
 
     def __init__(self, num_agents, image_path,xdom, ydom, num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-2):
@@ -24,6 +26,7 @@ class ElectrostaticHalftoning:
         self.particles = None
         self.required_particles = None
         self.agents = None
+        self.scaling_factor = None
 
 
     def process_image(self,image_path):
@@ -33,8 +36,9 @@ class ElectrostaticHalftoning:
         image = np.array(image)/255 # Normalize pixel values to [0, 1] as required by rhe algorithms
 
         zoom_factors = (self.target_resolution[0] / image.shape[0],self.target_resolution[1] / image.shape[1])
+        rescaled_image = zoom(image,zoom_factors)
 
-        return zoom(image,zoom_factors)
+        return rescaled_image
 
 
     def number_particles(self):
@@ -70,13 +74,13 @@ class ElectrostaticHalftoning:
         grey_values_broadcasted = grey_values_stacked[:, np.newaxis, :]  # Shape: (N, N, 2)
 
         # Element-wise multiply the grayscale values with the forcefield contributions
-        forcefield_contribution = forces * grey_values_broadcasted
+        forcefield_contribution = forces * grey_values_broadcasted*self.scaling_factor
 
         total_forces = forcefield_contribution.sum(axis=0)  # get the total force acting on each point
         total_forces = total_forces.reshape(grid_points.shape)  # Reshape total forces back to grid shape (n_x, n_y, 2)
 
         return total_forces
-
+    
     
     def initialize_particles(self):
         '''Initialize particles in the image randomly, optimizing based on gray values'''
@@ -93,8 +97,8 @@ class ElectrostaticHalftoning:
         probabilities = 1 - gray_values / max_grey  # Convert grey values to probabilities
         
         # Randomly choose the required number of particles based on these probabilities
-        selected_indices = np.random.choice(len(valid_pixels), size=self.required_particles, p=probabilities/np.sum(probabilities), replace=False)
-
+        #selected_indices = np.random.choice(len(valid_pixels), size=self.required_particles, p=probabilities/np.sum(probabilities), replace=False)
+        selected_indices = np.random.choice(len(valid_pixels), size=self.num_agents , p=probabilities/np.sum(probabilities), replace=False)
         # Extract the corresponding coordinates for the selected indices
         particles = valid_pixels[selected_indices].T
         
@@ -151,7 +155,7 @@ class ElectrostaticHalftoning:
     def evolve_particles(self):
         '''Compute particle movement in parallel using vectorized operations'''
         positions_over_time = []
-        tau = 0.006  # Step size, reduce it for more fine-grained movement
+        tau = 0.7#0.006  # Step size, reduce it for more fine-grained movement
         shaking_strength = 0.001  # Shaking strength
         converged = False
 
@@ -198,19 +202,19 @@ class ElectrostaticHalftoning:
     def plot_positions(self, positions_over_time):
         '''Plot particle evolution, initial, and final positions in a single figure with subplots'''
         
-        fig, axes = plt.subplots(2, 3, figsize=(18, 6))  # Create 3 subplots side by side
+        fig, axes = plt.subplots(1, 5, figsize=(18, 6))  # Create 3 subplots side by side
 
         # Extract initial and final positions
         initial_positions = positions_over_time[0]
         final_positions = positions_over_time[-1]
         #Underlying image (left plot)
-        ax = axes[0,0]
+        ax = axes[0]
         ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
         ax.set_title("Underlying Image")
 
         
         # Evolution over time (middle plot)
-        ax = axes[0,1]
+        ax = axes[1]
         ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
         num_iterations = len(positions_over_time)
         color = plt.cm.Blues  # Using a colormap for the evolution
@@ -227,7 +231,7 @@ class ElectrostaticHalftoning:
         ax.grid(True)
 
         # Initial positions (left plot)
-        ax = axes[0,2]
+        ax = axes[2]
         ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
         ax.scatter(initial_positions[1, :], initial_positions[0, :], color='red', s=3, alpha=0.8)
         ax.set_title("Initial Particle Positions")
@@ -236,7 +240,7 @@ class ElectrostaticHalftoning:
         ax.grid(True)
 
         # Final positions (right plot)
-        ax = axes[1,0]
+        ax = axes[3]
         ax.imshow(self.image, cmap='gray', origin='upper', extent=[0, self.ylim[1], 0, self.xlim[1]])
         ax.scatter(final_positions[1, :], final_positions[0, :], color='blue', s=3, alpha=0.9)
         ax.set_title("Final Particle Positions")
@@ -245,7 +249,7 @@ class ElectrostaticHalftoning:
         ax.grid(True)
 
         # Final particles (no image)
-        ax = axes[1,1]
+        ax = axes[4]
         ax.set_aspect('equal')
         ax.scatter(final_positions[1, :], final_positions[0, :], color='black', s=3, alpha=0.9)
         ax.set_title("Final Particle Positions no image")
@@ -253,14 +257,14 @@ class ElectrostaticHalftoning:
         ax.set_ylim([0, self.xlim[1]])
         ax.grid(True)
 
-        # Final particles (no image)
-        ax = axes[1,2]
-        ax.set_aspect('equal')
-        ax.scatter(self.agents[1, :], self.agents[0, :], color='green', s=3, alpha=0.9)
-        ax.set_title("Agents positions")
-        ax.set_xlim([0, self.ylim[1]])
-        ax.set_ylim([0, self.xlim[1]])
-        ax.grid(True)
+        # Agents (no image)
+        # ax = axes[1,2]
+        # ax.set_aspect('equal')
+        # ax.scatter(self.agents[1, :], self.agents[0, :], color='green', s=3, alpha=0.9)
+        # ax.set_title("Agents positions")
+        # ax.set_xlim([0, self.ylim[1]])
+        # ax.set_ylim([0, self.xlim[1]])
+        # ax.grid(True)
 
         # Adjust layout
         plt.tight_layout()
@@ -317,9 +321,14 @@ class ElectrostaticHalftoning:
 
         # Compute the required number of particles to maintain the average grey value
         self.required_particles = self.number_particles()
+        self.scaling_factor = self.num_agents / self.required_particles
         
         #Compute the force field (plot for debugging)
+        start_time = time.time()
         self.forcefield = self.compute_force_field()
+        end_time = time.time()  # Record the end time
+        elapsed_time = end_time - start_time  # Calculate the elapsed time
+        print(f"Elapsed time: {elapsed_time} seconds")
         
         # Initialize particles in the  domain
         self.particles = self.initialize_particles()
@@ -329,19 +338,19 @@ class ElectrostaticHalftoning:
         
 
         # Sample agents from the final particles and scale their positions to the application domain
-        self.agents = self.sample_agents(final_particles)
+        #self.agents = self.sample_agents(final_particles)
         self.plot_positions(positions_over_time)
-        agents = self.scale_positions(self.agents, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
-        
+        #agents = self.scale_positions(self.agents, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
+        agents = self.scale_positions(final_particles, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
         return agents
 
 # #Example usages
 num_agents = 50
-num_iterations =250
+num_iterations =450
 
 # #image_path = "black_circle.png"
 #image_path = "dog_grey.jpg"
-image_path = "skull.png"
+image_path = "spatial_distribution.png"
 
 halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
 agents = halftoning.run()

@@ -99,12 +99,12 @@ def save_plot(xm,g,nbRes,image_name):
 # ===============================
 
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 100  # Number of datapoints
+param.nbData = 150  # Number of datapoints
 param.nbVarX = 2  # State space dimension
-param.nbFct = 8  # Number of Fourier basis functions
+param.nbFct = 12  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
-param.nbAgents = 30  # Number of agents
+param.nbAgents = 3  # Number of agents
 param.nbIter = 50  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
 param.r = 1e-7  # Control weight term
@@ -132,6 +132,7 @@ KX = np.zeros((param.nbVarX, param.nbFct, param.nbFct))
 KX[0, :, :], KX[1, :, :] = np.meshgrid(param.range, param.range)
 param.kk = KX.reshape(param.nbVarX, param.nbFct**2) * param.om
 param.Lambda = np.power(xx**2+yy**2+1,-sp).flatten() # Weighting vector
+
 
 # Enumerate symmetry operations for 2D signal ([-1,-1],[-1,1],[1,-1] and [1,1]), and removing redundant ones -> keeping ([-1,-1],[-1,1])
 op = hadamard_matrix(2**(param.nbVarX-1))
@@ -163,7 +164,15 @@ Su = np.vstack([
 Sx = np.kron(np.ones(param.nbData), np.eye(param.nbVarX)).T
 Sr = Su[idx-1, :] ##different indexing compared to reference matlab code
 
-Q = np.diag(param.Lambda) # Precision matrix
+Q = np.zeros((param.nbAgents, len(param.Lambda), len(param.Lambda)))
+for m in range (param.nbAgents):
+    elements = int(len(param.Lambda)/param.nbAgents)
+    lambda_m = np.zeros(len(param.Lambda))
+    lambda_m[m*elements:(m+1)*elements] = param.Lambda[m*elements:(m+1)*elements]
+    Q[m,:,:] = np.diag(lambda_m) 
+    
+
+#Q = np.diag(param.Lambda) # Precision matrix
 Qr = np.eye(param.nbPoints * param.nbVarX) * param.qr
 Qd = np.eye(param.nbData * param.nbVarX) * param.qd
 R = np.eye((param.nbData-1) * param.nbVarX) * param.r # Control weight matrix (at trajectory level)
@@ -211,15 +220,16 @@ g = w_hat.T @ phim
 # =================================================
 '''HALFTONING INITIALIZATION'''
 # Initialize the random starting positions of the agents
-image_path = "spatial_distribution"
+#image_path = "spatial_distribution"
 #save_plot(xm,g,nbRes,image_path)
-image_path = "dog_grey"
-eh_iterations = 300
-halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".jpg", param.xlim, param.xlim, eh_iterations)
-x0 = halftoning.run()
-#x0 = np.random.rand(param.nbVarX, param.nbAgents)
+image_path = "skull"
+#eh_iterations = 300
+#halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".png", param.xlim, param.xlim, eh_iterations)
+#x0 = halftoning.run()
+x0 = np.random.rand(param.nbVarX, param.nbAgents)
 # c = (np.array([[1],[1]])*param.xlim[1]/2).reshape(-1,1)
 # x0 = np.tile(c,param.nbAgents)
+#x0 = np.zeros((param.nbVarX, param.nbAgents)) + 1e-5
 
 
 # Shift the positions and assign them to param.Mu
@@ -262,21 +272,24 @@ for n in range(param.nbIter):
     w_avg = w_avg.reshape(-1,1)
        
     f = w_avg - w_hat  # Residuals for ergodic controlb  
+
+    q_component = 0
     
     # Gauss-Newton update for each agent
     for m in range(param.nbAgents):
         
         
-        du[:,m] = (np.linalg.inv(Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m])@ Su + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R) @ (-Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd[:,m].reshape(-1,1)) - Sr.T @Jr[:, :, m].T @ Qr @ fr[:,m].reshape(-1,1) - u[:, m].reshape(-1,1) * param.r)).squeeze()
+        du[:,m] = (np.linalg.inv(Su.T @ (J[:, :, m].T @ Q[m, :,:] @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m])@ Su + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R) @ (-Su.T @ (J[:, :, m].T @ Q[m,:,:] @ f + Jd[:, :, m].T @ Qd @ fd[:,m].reshape(-1,1)) - Sr.T @Jr[:, :, m].T @ Qr @ fr[:,m].reshape(-1,1) - u[:, m].reshape(-1,1) * param.r)).squeeze()
         # #du[:, m], _, _, _ = scipy.linalg.lstsq(
         #     Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m]) @ Su
         #     + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R,
         #     -Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd[:, m].reshape(-1,1))
         #     - Sr.T @ Jr[:, :, m].T @ Qr @ fr[:, m]
         #     - u[:, m] * param.r)
+        q_component += f.T @ Q[m,:,:] @ f
 
    
-    cost0 = f.T @ Q @ f + np.linalg.norm(fr)**2*param.qr+ np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
+    cost0 = q_component+ np.linalg.norm(fr)**2*param.qr+ np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
 
            
 	# Log data
@@ -290,6 +303,7 @@ for n in range(param.nbIter):
     while True:
         utmp = u + du * alpha
         xtmp = Sx @ x0 + Su @ utmp
+
     
         
         for m in range(param.nbAgents):
@@ -297,13 +311,16 @@ for n in range(param.nbIter):
             fdtmp[:, m] , _= f_domain(xtmp[:, m],param)  # Residuals and Jacobians for staying within bounded domain
             frtmp[:, m] , _= f_reach(xtmp[idx-1, m],param.Mu_ma[:,m],param)  # Residuals and Jacobians for 
 
+
         wtmp_avg = np.mean(wtmp, axis=1)  # Average Fourier coefficients across agents
         wtmp_avg = wtmp_avg.reshape(-1,1)
         ftmp = wtmp_avg - w_hat  # Residuals for ergodic control
+
         
-        cost = ftmp.T @ Q @ ftmp +  np.linalg.norm(frtmp)**2 * param.qr + np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r
+        cost = ftmp.T @( np.sum(Q,axis = 0)) @ ftmp +  np.linalg.norm(frtmp)**2 * param.qr + np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r # chekck multiplication f and q, dimensions of multiplication are for the same agent?
         if np.all(cost < cost0) or alpha < 1e-3:
             print("Iteration {}, cost: {}".format(n, np.mean(cost).squeeze()))
+            #print(np.mean(cost).squeeze())
             break
         alpha /= 2
     

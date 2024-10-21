@@ -85,7 +85,7 @@ def f_reach(x ,param):
 # ===============================
 
 param = lambda: None # Lazy way to define an empty class in python
-param.nbData = 200 # Number of datapoints
+param.nbData = 500 # Number of datapoints
 param.nbVarX = 2 # State space dimension
 param.nbFct = 8 # Number of Fourier basis functsions
 param.nbStates = 2 # Number of Gaussians to represent the spatial distribution
@@ -191,27 +191,27 @@ u_norm_reg = 1e-3
 
 xt = np.array([[0.1],[0.1]]) # Initial position
 wt = np.zeros((param.nbFct**param.nbVarX,1))
-#u = np.zeros((param.nbData-1,param.nbVarX)) # Initial control command
-u = np.random.uniform(-u_max, u_max, (param.nbData-1, param.nbVarX))
+u = np.zeros((param.nbData-1,param.nbVarX)) # Initial control command
+#u = np.random.uniform(-u_max*0.75, u_max*0.75, (param.nbData-1, param.nbVarX))
 
-# for t in range(param.nbData-1):
-# 	phi1 = np.cos(xt @ param.kk1.T) / param.L # In 1D
-# 	dphi1 = - np.sin(xt @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbVarX,1) / param.L # in 1D
+for t in range(param.nbData-1):
+	phi1 = np.cos(xt @ param.kk1.T) / param.L # In 1D
+	dphi1 = - np.sin(xt @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbVarX,1) / param.L # in 1D
 
-# 	phi = (phi1[0,xx.flatten()] * phi1[1,yy.flatten()]).reshape((-1,1)) # Fourier basis function
-# 	dphi = np.vstack((
-# 		dphi1[0,xx.flatten()] * phi1[1,yy.flatten()],
-# 		phi1[0,xx.flatten()] * dphi1[1,yy.flatten()]
-# 	)) # Gradient of Fourier basis functions
+	phi = (phi1[0,xx.flatten()] * phi1[1,yy.flatten()]).reshape((-1,1)) # Fourier basis function
+	dphi = np.vstack((
+		dphi1[0,xx.flatten()] * phi1[1,yy.flatten()],
+		phi1[0,xx.flatten()] * dphi1[1,yy.flatten()]
+	)) # Gradient of Fourier basis functions
 
-# 	wt = wt + phi
-# 	w = wt / (t+1) #w are the Fourier series coefficients along trajectory 
+	wt = wt + phi
+	w = wt / (t+1) #w are the Fourier series coefficients along trajectory 
 
-# 	# Controller with constrained velocity norm
-# 	u_t = -dphi @ np.diag(param.Lambda) @ (w-w_hat)
-# 	u_t = u_t * u_max / (np.linalg.norm(u_t)+u_norm_reg) # Velocity command
-# 	u[t] = u_t.T
-# 	xt = xt + u_t * param.dt # Update of position
+	# Controller with constrained velocity norm
+	u_t = -dphi @ np.diag(param.Lambda) @ (w-w_hat)
+	u_t = u_t * u_max / (np.linalg.norm(u_t)+u_norm_reg) # Velocity command
+	u[t] = u_t.T
+	xt = xt + u_t * param.dt # Update of position
 
 # iLQR
 # ===============================
@@ -253,7 +253,8 @@ for i in range(param.nbIter):
 		ftmp = wtmp - w_hat 
 		cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
 		if cost < cost0 or alpha < 1e-3:
-			print("Iteration {}, cost: {}".format(i, cost.squeeze()))
+			#print("Iteration {}, cost: {}".format(i, cost.squeeze()))
+			print(cost.squeeze())
 			break
 		alpha /= 2
 	

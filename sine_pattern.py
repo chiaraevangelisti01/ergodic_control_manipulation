@@ -100,7 +100,7 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
 
         # Modulated sine wave along the major axis and oscillation along the minor axis
         # Apply amplitude modulation: stronger in the center, weaker at the edges
-        modulation = 0.3 + 0.7 * np.sin(np.linspace(0, np.pi, segment_length))
+        modulation = 0.7 + 0.7 * np.sin(np.linspace(0, np.pi, segment_length))
 
         x_segment = np.vstack((
             np.linspace(+major_axis_length / 2, -major_axis_length / 2, segment_length),  # Linear motion along the major axis
