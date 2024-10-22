@@ -55,25 +55,28 @@ def plot_control_inputs(control_inputs, ax=None):
 param = lambda: None
 param.nbData = 200  # Number of data points (
 param.nbVarX = 2  # State space dimension (2D)
-param.nbStates = 2  # Number of Gaussians in GMM
+param.nbStates = 3  # Number of Gaussians in GMM
 param.dt = 1e-2  # Time step length
 param.xlim = [0, 1]  # Domain limits
 param.L = (param.xlim[1] - param.xlim[0]) * 2  # Size of [-param.xlim(2), param.xlim(2)]
 param.a = 5  # Spiral parameter for radius growth
 param.b = 16  # Spiral parameter for the angle
-param.u_max = 4.0  # Maximum allowed velocity
-param.u_norm_reg = 1e-3  # Regularization term for control inputs
+
 
 
 # Desired spatial distribution represented as a mixture of Gaussians
-param.Mu = np.zeros((2, 2))
+param.Mu = np.zeros((2, 3))
 param.Mu[:, 0] = [0.5, 0.7]
 param.Mu[:, 1] = [0.6, 0.3]
-param.Sigma = np.zeros((2, 2, 2))
+param.Mu[:, 2] = [0.1, 0.5]
+
+param.Sigma = np.zeros((2, 2, param.nbStates))
 sigma1_tmp = np.array([[0.3], [0.1]])
 param.Sigma[:, :, 0] = sigma1_tmp @ sigma1_tmp.T * 5e-1 + np.identity(param.nbVarX) * 5e-3 
 sigma2_tmp = np.array([[0.1], [0.2]])
 param.Sigma[:, :, 1] = sigma2_tmp @ sigma2_tmp.T * 3e-1 + np.identity(param.nbVarX) * 1e-2 
+sigma3_tmp = np.array([[-0.2], [-0.1]])
+param.Sigma[:, :, 2] = sigma3_tmp @ sigma3_tmp.T * 3e-1 + np.identity(param.nbVarX) * 1e-2 
 
 # Generate the transformation matrices for each Gaussian (to match spiral trajectory with GMM)
 U = np.zeros((2, 2, param.nbStates))
@@ -86,8 +89,8 @@ for i in range(param.nbStates):
 
 #Trajectory generation
 #Generate 2D spiral trajectory -> invert vector orders to make it from the center to the outsides 
-t = np.linspace(param.b * np.pi, 0, param.nbData)  # Angle 
-r = np.linspace(1, 0, param.nbData)  # Radius
+t = np.linspace(param.b * np.pi, 0, int(param.nbData/param.nbStates))  # Angle 
+r = np.linspace(1, 0, int(param.nbData/param.nbStates))  # Radius
 direction =  1 #clockiwise (set -1 to make it counter-clockwise)
 
 
@@ -99,11 +102,13 @@ for i in range(param.nbStates):
     transformed_spiral = U[:, :, i] @ x0 + param.Mu[:, i].reshape(-1, 1)
     x = np.hstack((x, transformed_spiral))
 
+if len(x) < param.nbData:
+    x = np.hstack((x, x[:,-1].reshape(-1,1)*np.ones((param.nbVarX, param.nbData - len(x)))))
+
 #Compute control inputs to generate the trajectory (under u-max constraint)
 control_inputs = np.zeros((param.nbData - 1, param.nbVarX))
 for i in range(1, param.nbData):
     delta_pos = (x[:, i] - x[:, i - 1]) / param.dt
-    delta_pos = delta_pos * (param.u_max / (np.linalg.norm(delta_pos) + param.u_norm_reg))  # Apply u_max constraint
     
     control_inputs[i - 1] = delta_pos
 

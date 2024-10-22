@@ -126,7 +126,7 @@ def f_reach(x ,param):
 # ===============================
 
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 500  # Number of datapoints
+param.nbData = 200  # Number of datapoints
 param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution

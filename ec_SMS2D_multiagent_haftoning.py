@@ -92,6 +92,7 @@ def save_plot(xm,g,nbRes,image_name):
     plt.contourf(X, Y, G, cmap="gray_r")
 
     # Save the plot as a PNG file
+    plt.show()
     plt.savefig(image_name)
 
 
@@ -99,17 +100,17 @@ def save_plot(xm,g,nbRes,image_name):
 # ===============================
 
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 150  # Number of datapoints
+param.nbData = 300  # Number of datapoints
 param.nbVarX = 2  # State space dimension
-param.nbFct = 12  # Number of Fourier basis functions
+param.nbFct = 16  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
-param.nbAgents = 3  # Number of agents
+param.nbAgents = 4  # Number of agents
 param.nbIter = 50  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
 param.r = 1e-7  # Control weight term
 param.qd = 1e0  # Bounded domain weight term
-param.qr =0e4   # Reach target weight term
+param.qr =1e-4   # Reach target weight term
 param.Mu_ma = np.matlib.repmat(np.array([[0.3], [0.9]]), 1, param.nbAgents) # Target positions for agents
 
 param.xlim = [0,1] # Domain limit
@@ -220,9 +221,9 @@ g = w_hat.T @ phim
 # =================================================
 '''HALFTONING INITIALIZATION'''
 # Initialize the random starting positions of the agents
-#image_path = "spatial_distribution"
-#save_plot(xm,g,nbRes,image_path)
-image_path = "skull"
+image_path = "spatial_distribution"
+save_plot(xm,g,nbRes,image_path)
+#image_path = "skull"
 #eh_iterations = 300
 #halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".png", param.xlim, param.xlim, eh_iterations)
 #x0 = halftoning.run()
@@ -346,14 +347,17 @@ G = np.where(G > 0, G, 0)
 # Plot the spatial distribution as a contour plot
 plt.contourf(X, Y, G, cmap="gray_r")
 
+base_color = np.array([0, 1, 0])
 # Loop through each agent and plot its initial and final trajectories
 for m in range(param.nbAgents):
+    lightness = 1 - (m / param.nbAgents) 
+    color = base_color * lightness
     plt.plot(logs.x[0][0::2, m], logs.x[0][1::2, m], linestyle="-", color=[.7, .7, .7], label="Initial" if m == 0 else None)
-    plt.plot(logs.x[-1][0::2, m], logs.x[-1][1::2, m], linestyle="-", color=[0, 0, 0], label="Final" if m == 0 else None)
-    plt.plot(logs.x[-1][0, m], logs.x[-1][1, m], marker="o", markersize=5, color=[0, 0, 0])
+    plt.plot(logs.x[-1][0::2, m], logs.x[-1][1::2, m], linestyle="-", color= color, label="Final" if m == 0 else None)
+    plt.plot(logs.x[-1][0, m], logs.x[-1][1, m], marker="o", markersize=5, color=color)
 
 # Plot the target positions
-plt.plot(param.Mu[0, :], param.Mu[1, :], 'x', markersize=6, linewidth=4, color=[0, .6, 0], label="Target")
+plt.plot(param.Mu_ma[0, :], param.Mu_ma[1, :], 'x', markersize=6, linewidth=4, color=[0.6, 0, 0], label="Target")
 plt.axis("scaled")
 plt.title("Spatial distribution g(x)")
 plt.legend()

@@ -26,8 +26,7 @@ def f_ergodic(x, param):
 
 	x1_s = x[0::2]
 	x2_s = x[1::2]
-	print(x.shape)
-	print(x1_s.shape)
+	
 
 	phi1[:,:,0] = np.cos(x1_s @ param.kk1.T) / param.L
 	dphi1[:,:,0] = - np.sin(x1_s @ param.kk1.T) * np.matlib.repmat(param.kk1.T,param.nbData,1) / param.L
@@ -152,6 +151,9 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 # Desired spatial distribution
 g = w_hat.T @ phim
 
+image_path = "reconstructed_distribution"
+save_plot(xm,g,nbRes,image_path)
+
 # Myopic ergodic control (for initialisation)
 # ===============================
 u_max = 4e0 # Maximum speed allowed
@@ -194,7 +196,7 @@ for i in range(param.nbIter):
 	f = w - w_hat # Residual
 
 	du = np.linalg.inv(Su.T @ J.T @ Q @ J @ Su + R) @ (-Su.T @ J.T @ Q @ f - u * param.r) # Gauss-Newton update
-	print(du.shape)
+
 	cost0 = f.T @ Q @ f + np.linalg.norm(u)**2 * param.r # Cost
 	
 	# Log data

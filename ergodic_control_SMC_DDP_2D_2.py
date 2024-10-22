@@ -81,6 +81,23 @@ def f_reach(x ,param):
     J = np.eye(param.nbVarX * param.nbPoints)  # Jacobian
     return f, J
 
+def save_plot(xm,g,nbRes,image_name):
+    # Create a new figure
+    plt.figure(figsize=(8, 6))
+    plt.axis("off")
+
+    # Plot the spatial distribution g(x)
+    X = np.squeeze(xm[0, :, :])
+    Y = np.squeeze(xm[1, :, :])
+    G = np.reshape(g, [nbRes, nbRes])  # original distribution
+    G = np.where(G > 0, G, 0)
+
+    # Plot the spatial distribution as a contour plot
+    plt.contourf(X, Y, G, cmap="gray_r")
+
+    # Save the plot as a PNG file
+    plt.savefig(image_name)
+
 ## Parameters
 # ===============================
 
@@ -94,7 +111,7 @@ param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
 param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
 param.qr =0e4   # Reach target weight term
-param.r = 1e-8 # Control weight term
+param.r = 1e-11 # Control weight term
 
 param.xlim = [0,1] # Domain limit
 param.L = (param.xlim[1] - param.xlim[0]) * 2 # Size of [-param.xlim(2),param.xlim(2)]
@@ -183,6 +200,11 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 
 # Desired spatial distribution
 g = w_hat.T @ phim
+image_path = "reconstructed_distribution"
+save_plot(xm,g,nbRes,image_path)
+
+# Input desired spatial distribution
+
 
 # Myopic ergodic control (for initialisation)
 # ===============================
@@ -194,24 +216,24 @@ wt = np.zeros((param.nbFct**param.nbVarX,1))
 u = np.zeros((param.nbData-1,param.nbVarX)) # Initial control command
 #u = np.random.uniform(-u_max*0.75, u_max*0.75, (param.nbData-1, param.nbVarX))
 
-for t in range(param.nbData-1):
-	phi1 = np.cos(xt @ param.kk1.T) / param.L # In 1D
-	dphi1 = - np.sin(xt @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbVarX,1) / param.L # in 1D
+# for t in range(param.nbData-1):
+# 	phi1 = np.cos(xt @ param.kk1.T) / param.L # In 1D
+# 	dphi1 = - np.sin(xt @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbVarX,1) / param.L # in 1D
 
-	phi = (phi1[0,xx.flatten()] * phi1[1,yy.flatten()]).reshape((-1,1)) # Fourier basis function
-	dphi = np.vstack((
-		dphi1[0,xx.flatten()] * phi1[1,yy.flatten()],
-		phi1[0,xx.flatten()] * dphi1[1,yy.flatten()]
-	)) # Gradient of Fourier basis functions
+# 	phi = (phi1[0,xx.flatten()] * phi1[1,yy.flatten()]).reshape((-1,1)) # Fourier basis function
+# 	dphi = np.vstack((
+# 		dphi1[0,xx.flatten()] * phi1[1,yy.flatten()],
+# 		phi1[0,xx.flatten()] * dphi1[1,yy.flatten()]
+# 	)) # Gradient of Fourier basis functions
 
-	wt = wt + phi
-	w = wt / (t+1) #w are the Fourier series coefficients along trajectory 
+# 	wt = wt + phi
+# 	w = wt / (t+1) #w are the Fourier series coefficients along trajectory 
 
-	# Controller with constrained velocity norm
-	u_t = -dphi @ np.diag(param.Lambda) @ (w-w_hat)
-	u_t = u_t * u_max / (np.linalg.norm(u_t)+u_norm_reg) # Velocity command
-	u[t] = u_t.T
-	xt = xt + u_t * param.dt # Update of position
+# 	# Controller with constrained velocity norm
+# 	u_t = -dphi @ np.diag(param.Lambda) @ (w-w_hat)
+# 	u_t = u_t * u_max / (np.linalg.norm(u_t)+u_norm_reg) # Velocity command
+# 	u[t] = u_t.T
+# 	xt = xt + u_t * param.dt # Update of position
 
 # iLQR
 # ===============================

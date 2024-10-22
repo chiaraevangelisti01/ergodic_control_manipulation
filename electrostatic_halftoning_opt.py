@@ -344,15 +344,15 @@ class ElectrostaticHalftoning:
         agents = self.scale_positions(final_particles, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
         return agents
 
-# #Example usages
-num_agents = 50
-num_iterations =450
+# # #Example usages
+# num_agents = 50
+# num_iterations =450
 
-# #image_path = "black_circle.png"
-#image_path = "dog_grey.jpg"
-image_path = "spatial_distribution.png"
+# # #image_path = "black_circle.png"
+# #image_path = "dog_grey.jpg"
+# image_path = "spatial_distribution.png"
 
-halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
-agents = halftoning.run()
+# halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
+# agents = halftoning.run()
 
 

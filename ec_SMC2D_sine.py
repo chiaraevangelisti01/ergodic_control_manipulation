@@ -170,7 +170,7 @@ def modulated_sine_wave_with_transitions(param, Mu, Sigma):
 # ===============================
 
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 200  # Number of datapoints
+param.nbData = 500  # Number of datapoints
 param.nbVarX = 2  # State space dimension
 param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
@@ -179,7 +179,7 @@ param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
 param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
 param.qr =0e4   # Reach target weight term
-param.r = 1e-8 # Control weight term
+param.r = 1e-13 # Control weight term
 
 param.xlim = [0,1] # Domain limit
 param.L = (param.xlim[1] - param.xlim[0]) * 2 # Size of [-param.xlim(2),param.xlim(2)]
