@@ -13,6 +13,7 @@ from matplotlib import pyplot as plt
 import matplotlib.animation as animation
 from PIL import Image
 from scipy.ndimage import zoom
+from scipy.interpolate import interp1d  
 
 
 # Create a directory if it does not exist to save trajectories
@@ -36,8 +37,23 @@ def clear():
     x.clear()
     y.clear()
 
+def resample_trajectory(x, y, num_points):
+    """Resample the trajectory to have exactly num_points."""
+    if len(x) < 2 or len(y) < 2:
+        return np.array(x), np.array(y)  # Not enough points to resample
 
-def on_click(event, directory, file_prefix):
+    # Create an array of evenly spaced points between 0 and 1 for the original and new trajectory
+    t_original = np.linspace(0, 1, len(x))  # Time scale of the original data
+    t_resampled = np.linspace(0, 1, num_points)  # Time scale for resampling
+
+    # Interpolate x and y positions
+    x_resampled = interp1d(t_original, x, kind='linear')(t_resampled)
+    y_resampled = interp1d(t_original, y, kind='linear')(t_resampled)
+
+    return x_resampled, y_resampled
+
+
+def on_click(event, directory, file_prefix, num_points):
     """Toggle capture_on state on left mouse button click"""
     global capture_on, num_agents
     # Always allow toggling off to stop and save the current trajectory
@@ -48,11 +64,12 @@ def on_click(event, directory, file_prefix):
             (tr,) = plt.plot([], [])
             display_trajectories.append(tr)
         else:
-            # Stop capture and save trajectory
+            # Stop capture and resample trajectory to have exactly num_points
+            x_resampled, y_resampled = resample_trajectory(x, y, num_points)
             filename = os.path.join(
                 directory, "{}{}.npy".format(file_prefix, len(display_trajectories) - 1)  # Use -1 because it was appended earlier
             )
-            np.save(filename, np.asarray([x, y]).T)
+            np.save(filename, np.asarray([x_resampled, y_resampled]).T)
 
         capture_on = not capture_on
 
@@ -102,11 +119,19 @@ def main():
     required=True,
     help="Number of agents (trajectories) to create",
     )
+    parser.add_argument(
+        "-p",
+        "--points",
+        type=int,
+        required=True,
+        help="Number of points per trajectory",
+    )
 
     args = parser.parse_args()
     # directory = 'tmp'
     directory = args.directory
     num_agents = args.agents
+    num_points = args.points
     file_prefix = "traj"
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -125,7 +150,7 @@ def main():
 
     # fig.canvas.mpl_connect("button_press_event", on_click)
     fig.canvas.mpl_connect(
-        "button_press_event", lambda event: on_click(event, directory, file_prefix)
+        "button_press_event", lambda event: on_click(event, directory, file_prefix, num_points)
     )
     fig.canvas.mpl_connect("motion_notify_event", on_capture_mouse_motion)
     fig.canvas.mpl_connect("key_press_event", on_key)
@@ -148,5 +173,6 @@ def main():
     plt.show()
 
 
-if __name__ == "__main__":
-    main()
+
+# if __name__ == "__main__":
+#     main()

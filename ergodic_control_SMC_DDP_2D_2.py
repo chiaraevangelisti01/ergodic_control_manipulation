@@ -13,6 +13,9 @@ import numpy.matlib
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import os
+from record_trajectories_function import generate_trajectories
+import glob
 
 # Helper functions
 # ===============================
@@ -98,6 +101,22 @@ def save_plot(xm,g,nbRes,image_name):
     # Save the plot as a PNG file
     plt.savefig(image_name)
 
+
+def create_trajectories(directory, num_agents, num_points, image_path):
+    """create trajectories and load them after creation."""
+    
+    generate_trajectories(directory, num_agents, num_points, image_path)
+    trajectories = []
+    file_prefix = 'traj'
+
+    for filename in sorted(glob.glob(os.path.join(directory, "{}*.npy".format(file_prefix)))):
+        traj = np.load(filename)  # Load trajectory (shape: num_points x 2)
+        trajectories.append(traj)
+        #print(f"Loaded trajectory from {filename}, shape: {traj.shape}")
+
+    return trajectories
+
+
 ## Parameters
 # ===============================
 
@@ -112,6 +131,7 @@ param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
 param.qr =0e4   # Reach target weight term
 param.r = 1e-11 # Control weight term
+param.nbAgents = 1
 
 param.xlim = [0,1] # Domain limit
 param.L = (param.xlim[1] - param.xlim[0]) * 2 # Size of [-param.xlim(2),param.xlim(2)]
@@ -202,6 +222,10 @@ phim = phim * np.matlib.repmat(HK,1,nbRes**param.nbVarX)
 g = w_hat.T @ phim
 image_path = "reconstructed_distribution"
 save_plot(xm,g,nbRes,image_path)
+directory = "mouse_trajectories"
+ref_trajectories = create_trajectories(directory, param.nbAgents, param.nbData, image_path+'.png')
+
+
 
 # Input desired spatial distribution
 
