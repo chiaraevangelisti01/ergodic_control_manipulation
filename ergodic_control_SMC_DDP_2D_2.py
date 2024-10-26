@@ -199,7 +199,7 @@ param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
 param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
 param.qr =1e2   # Reach target weight term
-param.qc = 1e-4 #Curvature weight term
+param.qc = 1e-6 #Curvature weight term
 param.r = 1e-9 # Control weight term
 param.nbAgents = 1
 #param.Mu_reach = np.array([[0.3],[0.9]]) #Target to reach
@@ -225,8 +225,7 @@ idx = (tl - 1) * param.nbVarX + np.arange(1, param.nbVarX + 1).reshape(-1, 1)
 idx= idx.flatten()
 idp = np.arange(param.nbData)[:, None] * param.nbVarX + np.arange(1, param.nbVarPos + 1)
 idp = idp.flatten()  # position indeces
-idv = np.arange(param.nbData)[:, None] * param.nbVarX + np.arange(param.nbVarPos + 1, 2 * param.nbVarPos + 1)
-idv = idv.flatten()  # velocity indeces
+
 
 # Enumerate symmetry operations for 2D signal ([-1,-1],[-1,1],[1,-1] and [1,1]), and removing redundant ones -> keeping ([-1,-1],[-1,1])
 op = hadamard_matrix(2**(param.nbVarPos-1))
