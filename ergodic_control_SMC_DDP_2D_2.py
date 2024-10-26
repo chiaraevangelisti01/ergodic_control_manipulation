@@ -111,7 +111,7 @@ def f_curvature(x, param):
     for t in range(param.nbData):
         a = x[:, t].T @ Sa @ x[:, t]
         b = x[:, t].T @ Sb @ x[:, t] + 1E-8
-        Jtmp = 2 * b**(-3/2) * Sa @ x[:, t] - 3 * a * b**(-5/2) * Sb @ x[:, t]
+        Jtmp =  b**(-3/2) * (Sa+Sa.T) @ x[:, t] - 3 * a * b**(-5/2) * Sb @ x[:, t]
         if t ==0:
             J = Jtmp
         else:
