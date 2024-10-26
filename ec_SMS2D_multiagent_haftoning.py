@@ -23,9 +23,7 @@ def f_ergodic(x, param):
     phi1[:,:,1] = np.cos(x2_s @ param.kk1.T) / param.L
     dphi1[:,:,1] = -np.sin(x2_s @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbData, 1) / param.L
 
-    
     phi = phi1[:, xx, 0] * phi1[:, yy, 1]
-    
     phi = phi.reshape(param.nbData, -1, order ='F')
     
     dphi = np.zeros((param.nbData * param.nbVarX, param.nbFct ** 2))

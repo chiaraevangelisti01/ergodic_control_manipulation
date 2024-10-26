@@ -33,9 +33,9 @@ def generate_trajectories(directory, num_agents, num_points, image_path):
 
         return x_resampled, y_resampled
 
-    def on_click(event, directory, file_prefix, num_points):
+    def on_click(event, directory, file_prefix, num_points,num_agents):
         """Toggle capture_on state on left mouse button click"""
-        global capture_on, num_agents
+        global capture_on
         # Always allow toggling off to stop and save the current trajectory
         if capture_on or (event.button == 1 and len(display_trajectories) < num_agents):  
             if not capture_on:
@@ -95,8 +95,9 @@ def generate_trajectories(directory, num_agents, num_points, image_path):
 
     xmin, xmax = 0, 1.0
     ymin, ymax = 0, 1.0
-
+    
     fig = plt.figure(figsize=(10, 6))
+    
     # Replace by an image or distributions
 
     ax = plt.gca()
@@ -107,15 +108,17 @@ def generate_trajectories(directory, num_agents, num_points, image_path):
 
     # fig.canvas.mpl_connect("button_press_event", on_click)
     fig.canvas.mpl_connect(
-        "button_press_event", lambda event: on_click(event, directory, file_prefix, num_points)
+        "button_press_event", lambda event: on_click(event, directory, file_prefix, num_points,num_agents)
     )
     fig.canvas.mpl_connect("motion_notify_event", on_capture_mouse_motion)
     fig.canvas.mpl_connect("key_press_event", on_key)
+    
 
     anim = animation.FuncAnimation(
         fig, display, 1000, interval=20, blit=False, repeat=True
     )
     plt.show()
+    
 
     # Read and plot trajectories saved in .npy files
     fig = plt.figure(figsize=(10, 6))
