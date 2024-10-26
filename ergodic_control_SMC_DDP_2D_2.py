@@ -119,6 +119,21 @@ def f_curvature(x, param):
         
     return f, J
 
+def reference_curvature(x):
+    # Compute first derivatives (velocities)
+    dx = np.gradient(x[0, :])
+    dy = np.gradient(x[1, :])
+
+    # Compute second derivatives (accelerations)
+    ddx = np.gradient(dx)
+    ddy = np.gradient(dy)
+
+    # Compute curvature using the formula
+    dxn = (dx**2 + dy**2)**(3/2)
+    fc_ref = (dx * ddy - dy * ddx) / (dxn + 1E-8)  # Avoid division by zero
+
+    return fc_ref
+
 def transfer_matrices(A, B):
     nbVarX, nbVarU, nbData = B.shape
     nbData = nbData + 1
@@ -184,8 +199,8 @@ param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
 param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
 param.qr =1e2   # Reach target weight term
-param.qc = 1e-6 #Curvature weight term
-param.r = 1e-10 # Control weight term
+param.qc = 1e-4 #Curvature weight term
+param.r = 1e-9 # Control weight term
 param.nbAgents = 1
 #param.Mu_reach = np.array([[0.3],[0.9]]) #Target to reach
 param.Mu_reach = np.concatenate(([0.3, 0.9], np.zeros(param.nbVarX - param.nbVarPos))).reshape(-1, 1)
@@ -298,8 +313,8 @@ g = w_hat.T @ phim
 image_path = "reconstructed_distribution"
 save_plot(xm,g,nbRes,image_path)
 directory = "mouse_trajectories"
-#ref_trajectories = create_trajectories(directory, param.nbAgents, param.nbData, image_path+'.png')
-
+ref_trajectories = create_trajectories(directory, param.nbAgents, param.nbData, image_path+'.png')
+fc_ref = reference_curvature(ref_trajectories[0].T)
 
 
 # Myopic ergodic control (for initialisation)
@@ -349,11 +364,13 @@ for i in range(param.nbIter):
     fr, Jr = f_reach(x[idx-1], param) # Reach target
     fc, Jc = f_curvature(x.reshape(param.nbVarX,param.nbData),param)
     f = w - w_hat # Residual
+    fc_delta = fc.reshape(-1,1) - fc_ref.reshape(-1,1)
+  
     
     du = np.linalg.inv(Su[idp-1, :].T @ (J.T @ Q @ J + Jd.T @ Qd @ Jd) @ Su[idp-1,:] + Su.T @ Jc.T @ Jc @ Su *param.qc+
-     Sr.T @ Jr.T @ Qr @ Jr @ Sr + R) @ (-Su[idp-1,:].T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) -Su.T @ Jc.T @ fc.reshape(-1,1) *param.qc- Sr.T @ Jr.T @ Qr @ fr - u * param.r) # Gauss-Newton update
+     Sr.T @ Jr.T @ Qr @ Jr @ Sr + R) @ (-Su[idp-1,:].T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) -Su.T @ Jc.T @ fc_delta *param.qc- Sr.T @ Jr.T @ Qr @ fr - u * param.r) # Gauss-Newton update
     
-    cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2 * param.qd  + np.linalg.norm(fc)**2 * param.qc + np.linalg.norm(fr)**2 * param.qr+ np.linalg.norm(u)**2 * param.r # Cost
+    cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2 * param.qd  + np.linalg.norm(fc_delta)**2 * param.qc + np.linalg.norm(fr)**2 * param.qr+ np.linalg.norm(u)**2 * param.r # Cost
     
 	# Log data
     logs.x += [x] # Save trajectory in state space
@@ -374,7 +391,7 @@ for i in range(param.nbIter):
         wtmp, _ = f_ergodic(xtmp[idp-1], param)
         
         ftmp = wtmp - w_hat 
-        cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(fctmp)**2 * param.qc + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
+        cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(fctmp-fc_ref)**2 * param.qc + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
         if cost < cost0 or alpha < 1e-3:
             print("Iteration {}, cost: {}".format(i, cost.squeeze()))
             #print(cost.squeeze())

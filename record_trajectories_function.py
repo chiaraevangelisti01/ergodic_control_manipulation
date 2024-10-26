@@ -120,17 +120,17 @@ def generate_trajectories(directory, num_agents, num_points, image_path):
     plt.show()
     
 
-    # Read and plot trajectories saved in .npy files
-    fig = plt.figure(figsize=(10, 6))
-    ax = plt.gca()
-    ax.set_xlim([xmin, xmax])
-    ax.set_ylim([ymin, ymax])
-    filepath = os.path.join(directory, "{}*.npy".format(file_prefix))
-    for filename in sorted(glob.glob(filepath)):
-        tr = np.load(filename)
-        plt.plot(tr[:, 0], tr[:, 1], label=filename)
-    plt.legend()
-    plt.show()
+    # # Read and plot trajectories saved in .npy files
+    # fig = plt.figure(figsize=(10, 6))
+    # ax = plt.gca()
+    # ax.set_xlim([xmin, xmax])
+    # ax.set_ylim([ymin, ymax])
+    # filepath = os.path.join(directory, "{}*.npy".format(file_prefix))
+    # for filename in sorted(glob.glob(filepath)):
+    #     tr = np.load(filename)
+    #     plt.plot(tr[:, 0], tr[:, 1], label=filename)
+    # plt.legend()
+    # plt.show()
 
 
    
