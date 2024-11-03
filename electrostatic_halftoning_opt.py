@@ -8,7 +8,7 @@ import time
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path,xdom, ydom, num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-2):
+    def __init__(self, num_agents, image_path,xdom, ydom, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-2):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
@@ -17,6 +17,7 @@ class ElectrostaticHalftoning:
         self.target_resolution = target_resolution  # Target resolution for the image processing
         self.xdom = xdom #Application domain on x
         self.ydom = ydom #Application domain on y
+        self.initialization = initialization
         
         self.nbVarX = 2  # 2D state space for x, y coordinates
         
@@ -88,20 +89,36 @@ class ElectrostaticHalftoning:
         # Pre-calculate all valid pixel positions with their corresponding gray values
         x_indices, y_indices = np.indices(self.image.shape)  # Generate all coordinates
         valid_pixels = np.column_stack((x_indices.flatten(), y_indices.flatten()))  # List of all coordinates
-        gray_values = self.image.flatten()  # Flatten the grayscale image to match coordinates
+
+        if self.initialization == 'random':
+
+            gray_values = self.image.flatten()  # Flatten the grayscale image to match coordinates
+            max_grey = np.max(gray_values)
         
-        # Maximym grey value
-        max_grey = np.max(gray_values)
+            # Apply probability filtering based on the grayscale values, ensuring that darker pixels have a higher chance
+            probabilities = 1 - gray_values / max_grey  # Convert grey values to probabilities
+            
+            # Randomly choose the required number of particles based on these probabilities
+            selected_indices = np.random.choice(len(valid_pixels), size=self.num_agents , p=probabilities/np.sum(probabilities), replace=False)
+            # Extract the corresponding coordinates for the selected indices
+            particles = valid_pixels[selected_indices].T
         
-        # Apply probability filtering based on the grayscale values, ensuring that darker pixels have a higher chance
-        probabilities = 1 - gray_values / max_grey  # Convert grey values to probabilities
-        
-        # Randomly choose the required number of particles based on these probabilities
-        #selected_indices = np.random.choice(len(valid_pixels), size=self.required_particles, p=probabilities/np.sum(probabilities), replace=False)
-        selected_indices = np.random.choice(len(valid_pixels), size=self.num_agents , p=probabilities/np.sum(probabilities), replace=False)
-        # Extract the corresponding coordinates for the selected indices
-        particles = valid_pixels[selected_indices].T
-        
+        elif self.initialization == 'uniform':
+            row_particles = int(np.sqrt(self.num_agents*self.image.shape[1]/self.image.shape[0]))
+            col_particles = int(np.sqrt(self.num_agents*self.image.shape[0]/self.image.shape[1]))
+
+            while row_particles*col_particles < self.num_agents:
+                row_particles += 1
+            
+            x_pos = np.linspace(0,self.image.shape[0]-1,row_particles)
+            y_pos = np.linspace(0,self.image.shape[1]-1,col_particles)
+            X,Y = np.meshgrid(x_pos,y_pos)
+            particles = np.vstack((X.flatten(),Y.flatten()))
+
+            if particles.shape[1]> self.num_agents:
+                selected_indices = np.random.choice(particles.shape[1], self.num_agents, replace=False)
+                particles = particles[:,selected_indices]
+            
         return particles.astype(np.float64)
 
 
@@ -148,14 +165,13 @@ class ElectrostaticHalftoning:
         # Unit vector, coulomb law in 1d (1/distance^2), broadcasting to apply force direction
         forces = delta / distances**2
         
-        # Sum the forces for each particle
         return np.sum(forces, axis=2)
 
     
     def evolve_particles(self):
         '''Compute particle movement in parallel using vectorized operations'''
         positions_over_time = []
-        tau = 0.7#0.006  # Step size, reduce it for more fine-grained movement
+        tau = 0.006#0.006  # Step size, reduce it for more fine-grained movement
         shaking_strength = 0.001  # Shaking strength
         converged = False
 
@@ -332,27 +348,26 @@ class ElectrostaticHalftoning:
         
         # Initialize particles in the  domain
         self.particles = self.initialize_particles()
-
+        print(self.particles.shape)
+        
         # Evolve the particles
         final_particles, positions_over_time, converged = self.evolve_particles()
         
-
-        # Sample agents from the final particles and scale their positions to the application domain
-        #self.agents = self.sample_agents(final_particles)
+        # Scale their positions to the application domain
         self.plot_positions(positions_over_time)
-        #agents = self.scale_positions(self.agents, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
+
         agents = self.scale_positions(final_particles, self.xdom[0], self.xdom[1], self.ydom[0], self.ydom[1])
         return agents
 
 # # #Example usages
-# num_agents = 50
-# num_iterations =450
+num_agents = 2200
+num_iterations =300
 
 # # #image_path = "black_circle.png"
 # #image_path = "dog_grey.jpg"
-# image_path = "spatial_distribution.png"
+image_path = "spatial_distribution.png"
 
-# halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
-# agents = halftoning.run()
+halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], "uniform", num_iterations)
+agents = halftoning.run()
 
 

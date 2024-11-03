@@ -2,7 +2,7 @@ import numpy.matlib
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from electrostatic_halftoning_opt import ElectrostaticHalftoning
+#from electrostatic_halftoning_opt import ElectrostaticHalftoning
 import scipy
 
 # Helper functions
@@ -23,7 +23,9 @@ def f_ergodic(x, param):
     phi1[:,:,1] = np.cos(x2_s @ param.kk1.T) / param.L
     dphi1[:,:,1] = -np.sin(x2_s @ param.kk1.T) * np.matlib.repmat(param.kk1.T, param.nbData, 1) / param.L
 
+    
     phi = phi1[:, xx, 0] * phi1[:, yy, 1]
+    
     phi = phi.reshape(param.nbData, -1, order ='F')
     
     dphi = np.zeros((param.nbData * param.nbVarX, param.nbFct ** 2))
@@ -78,7 +80,8 @@ def f_reach(x, Mu, param):
 
 def save_plot(xm,g,nbRes,image_name):
     # Create a new figure
-    plt.figure(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.axis("off")
 
     # Plot the spatial distribution g(x)
     X = np.squeeze(xm[0, :, :])
@@ -87,26 +90,25 @@ def save_plot(xm,g,nbRes,image_name):
     G = np.where(G > 0, G, 0)
 
     # Plot the spatial distribution as a contour plot
-    plt.contourf(X, Y, G, cmap="gray_r")
+    ax.contourf(X, Y, G, cmap="gray_r")
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     # Save the plot as a PNG file
-    plt.show()
-    plt.savefig(image_name)
-
+    plt.savefig(image_name,bbox_inches='tight', pad_inches=0)
+    plt.close(fig)
 
 ## Parameters
 # ===============================
-
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 300  # Number of datapoints
+param.nbData = 250  # Number of datapoints
 param.nbVarX = 2  # State space dimension
 param.nbFct = 16  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
 param.nbAgents = 4  # Number of agents
-param.nbIter = 50  # Maximum number of iterations for iLQR
+param.nbIter = 100  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
-param.r = 1e-7  # Control weight term
+param.r = 1e-6  # Control weight term
 param.qd = 1e0  # Bounded domain weight term
 param.qr =1e-4   # Reach target weight term
 param.Mu_ma = np.matlib.repmat(np.array([[0.3], [0.9]]), 1, param.nbAgents) # Target positions for agents
@@ -221,18 +223,28 @@ g = w_hat.T @ phim
 # Initialize the random starting positions of the agents
 image_path = "spatial_distribution"
 save_plot(xm,g,nbRes,image_path)
+quit()
 #image_path = "skull"
 #eh_iterations = 300
 #halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".png", param.xlim, param.xlim, eh_iterations)
 #x0 = halftoning.run()
-x0 = np.random.rand(param.nbVarX, param.nbAgents)
+x0 = np.tile(np.array([[0.2], [0.1]]), param.nbAgents)
+#x0 = np.random.rand(param.nbVarX, param.nbAgents)
 # c = (np.array([[1],[1]])*param.xlim[1]/2).reshape(-1,1)
 # x0 = np.tile(c,param.nbAgents)
 #x0 = np.zeros((param.nbVarX, param.nbAgents)) + 1e-5
 
 
 # Shift the positions and assign them to param.Mu
-param.Mu_ma = np.hstack((x0[:, 1:], x0[:, :1]))
+for i in range(param.nbAgents):
+    
+    component = np.random.choice(len(Priors), p=Priors)
+    mean = param.Mu[:,component]
+    cov = param.Sigma[:,:,component]
+    param.Mu_ma[:, i] = np.random.multivariate_normal(mean, cov)
+#param.Mu_ma= np.random.multivariate_normal(param.Mu, param.Sigma, size = (param.nbVarX, param.nbAgents))
+   #param.Mu_ma = np.random.rand(param.nbVarX, param.nbAgents)#np.hstack((x0[:, 1:], x0[:, :1]))
+
 
 # Initialize u to store control commands for all agents
 u = np.zeros((param.nbVarX * (param.nbData - 1), param.nbAgents))
@@ -387,5 +399,4 @@ plt.grid(True)
 # Show the plot
 plt.tight_layout()
 plt.show()
-
 
