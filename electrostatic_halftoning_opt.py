@@ -3,12 +3,13 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg  # For loading the image
 from scipy.ndimage import zoom  # Import zoom for resampling
 from PIL import Image
+from scipy.stats import multivariate_normal
 
 import time
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path,xdom, ydom, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-2):
+    def __init__(self, num_agents, image_path,xdom, ydom, Mu,Sigma,Priors, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-2):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
@@ -18,6 +19,9 @@ class ElectrostaticHalftoning:
         self.xdom = xdom #Application domain on x
         self.ydom = ydom #Application domain on y
         self.initialization = initialization
+        self.Mu = Mu
+        self.Sigma = Sigma
+        self.Priors = Priors
         
         self.nbVarX = 2  # 2D state space for x, y coordinates
         
@@ -82,6 +86,55 @@ class ElectrostaticHalftoning:
 
         return total_forces
     
+    def analytical_force_field(self,x):
+        '''Compute the force field analytically at the given location using the Gaussian mixture model'''
+        x = x[::-1]
+        nbStates = self.Mu.shape[1]  # Number of Gaussian components
+        grad_f = np.zeros(len(x))    # Initialize the gradient
+        pdf_value = 0.0         # Initialize the total PDF value
+
+        for k in range(nbStates):
+            mu_k = self.Mu[:, k]
+            sigma_k = self.Sigma[:, :, k]
+            prior_k = self.Priors[k]
+            
+            # Compute the inverse and determinant of the covariance matrix
+            sigma_inv = np.linalg.inv(sigma_k)
+            # det_sigma = np.linalg.det(sigma_k)
+            
+            # # Compute the difference vector
+            # diff = x - mu_k
+
+            # # Compute the Gaussian PDF value for the current component
+            # exponent = -0.5 * np.dot(diff.T, np.dot(sigma_inv, diff))
+            # norm_const = prior_k / (2 * np.pi * np.sqrt(det_sigma))
+            # f_k = norm_const * np.exp(exponent)
+            rv_k = multivariate_normal(mean=mu_k, cov=sigma_k)
+            f_k = rv_k.pdf(x)*prior_k
+            
+            # Accumulate the total PDF value
+            pdf_value += f_k
+        
+            # Compute the gradient contribution from the current component
+            grad_f += f_k * np.dot(sigma_inv, mu_k - x)
+            
+        # Normalize the gradient by the total PDF value to get the gradient of the GMM
+        if pdf_value > 0:
+            grad_f /= pdf_value
+        
+
+        return grad_f
+    
+    def ff2(self):
+        grid_points = np.array(np.meshgrid(np.arange(self.xlim[0], self.xlim[1]), np.arange(self.ylim[0], self.ylim[1])))
+        forcefield = np.zeros((grid_points.shape[1], grid_points.shape[2], 2))  #  2D forces
+
+        for ip, jp in np.ndindex(grid_points.shape[1], grid_points.shape[2]):  # Imaginary charge moving over the grid
+              
+            forcefield[ip, jp] = self.analytical_force_field(np.array([ip, jp]) )*10 # Scale by grey value
+                               
+        return forcefield
+            
     
     def initialize_particles(self):
         '''Initialize particles in the image randomly, optimizing based on gray values'''
@@ -94,19 +147,19 @@ class ElectrostaticHalftoning:
 
             gray_values = self.image.flatten()  # Flatten the grayscale image to match coordinates
             max_grey = np.max(gray_values)
-        
+            
             # Apply probability filtering based on the grayscale values, ensuring that darker pixels have a higher chance
             probabilities = 1 - gray_values / max_grey  # Convert grey values to probabilities
             
             # Randomly choose the required number of particles based on these probabilities
             selected_indices = np.random.choice(len(valid_pixels), size=self.num_agents , p=probabilities/np.sum(probabilities), replace=False)
-            # Extract the corresponding coordinates for the selected indices
             particles = valid_pixels[selected_indices].T
+        
         
         elif self.initialization == 'uniform':
             row_particles = int(np.sqrt(self.num_agents*self.image.shape[1]/self.image.shape[0]))
             col_particles = int(np.sqrt(self.num_agents*self.image.shape[0]/self.image.shape[1]))
-
+          
             while row_particles*col_particles < self.num_agents:
                 row_particles += 1
             
@@ -170,8 +223,8 @@ class ElectrostaticHalftoning:
     
     def evolve_particles(self):
         '''Compute particle movement in parallel using vectorized operations'''
-        positions_over_time = []
-        tau = 0.006#0.006  # Step size, reduce it for more fine-grained movement
+        positions_over_time = [self.particles.copy()]  # Store the initial positions
+        tau = 0.05#0.006  # Step size, reduce it for more fine-grained movement
         shaking_strength = 0.001  # Shaking strength
         converged = False
 
@@ -185,7 +238,10 @@ class ElectrostaticHalftoning:
                 p_old = p.copy()  
 
                 # Apply bilinear interpolation for attractive forces
-                attractive_force = self.bilinear_interpolation(self.forcefield, p)
+                #attractive_force = self.bilinear_interpolation(self.forcefield, p)
+                attractive_force = self.analytical_force_field(p)
+                #print("Attractive force:", attractive_force)
+                #print("Repulsive force: ", forces[:, i])
                 
                 # Combine repulsive and attractive forces
                 total_force = forces[:, i] + attractive_force
@@ -273,16 +329,6 @@ class ElectrostaticHalftoning:
         ax.set_ylim([0, self.xlim[1]])
         ax.grid(True)
 
-        # Agents (no image)
-        # ax = axes[1,2]
-        # ax.set_aspect('equal')
-        # ax.scatter(self.agents[1, :], self.agents[0, :], color='green', s=3, alpha=0.9)
-        # ax.set_title("Agents positions")
-        # ax.set_xlim([0, self.ylim[1]])
-        # ax.set_ylim([0, self.xlim[1]])
-        # ax.grid(True)
-
-        # Adjust layout
         plt.tight_layout()
         plt.show()
 
@@ -290,14 +336,20 @@ class ElectrostaticHalftoning:
     def plot_force_field(self):
         '''Plot the force field as a vector field -> for debugging'''
 
-        # Generate the grid points
-        grid_points_x, grid_points_y = np.meshgrid(np.arange(self.xlim[0], self.xlim[1]),np.arange(self.ylim[0], self.ylim[1]))
+         # Generate the grid points with increased spacing to reduce arrow density
+        grid_points_x, grid_points_y = np.meshgrid(np.arange(self.xlim[0], self.xlim[1], 3),
+                                                np.arange(self.ylim[0], self.ylim[1], 3))
 
-        # Plot the force field, scaling the arrows by the force magnitude
-        plt.quiver(grid_points_x, grid_points_y, self.forcefield[:, :, 0], self.forcefield[:, :, 1], color='b',scale=10, scale_units='xy')  
+        # Subsample the force field to match the reduced number of grid points
+        force_x = self.forcefield[::3, ::3, 0]
+        force_y = self.forcefield[::3, ::3, 1]
+
+        # Plot the force field with adjusted arrow scaling and head size
+        plt.quiver(grid_points_x, grid_points_y, force_x, force_y, color='b',
+                scale=14, scale_units='xy', headwidth=1.5, headlength=2)
 
         # Adjust plot settings
-        plt.gca().invert_yaxis()
+        plt.gca()#.invert_yaxis()
         plt.show()
     
     def sample_agents(self,final_particles):
@@ -340,15 +392,11 @@ class ElectrostaticHalftoning:
         self.scaling_factor = self.num_agents / self.required_particles
         
         #Compute the force field (plot for debugging)
-        start_time = time.time()
-        self.forcefield = self.compute_force_field()
-        end_time = time.time()  # Record the end time
-        elapsed_time = end_time - start_time  # Calculate the elapsed time
-        print(f"Elapsed time: {elapsed_time} seconds")
+        self.forcefield = self.ff2()
+        self.plot_force_field()
         
         # Initialize particles in the  domain
         self.particles = self.initialize_particles()
-        print(self.particles.shape)
         
         # Evolve the particles
         final_particles, positions_over_time, converged = self.evolve_particles()
@@ -360,14 +408,35 @@ class ElectrostaticHalftoning:
         return agents
 
 # # #Example usages
-num_agents = 2200
+num_agents = 150
 num_iterations =300
+
+nbVarX = 2  # State space dimension
+nbStates = 2  # Number of Gaussians to represent the spatial distribution
+# Desired spatial distribution represented as a mixture of Gaussians
+Mu = np.zeros((2,2))
+Mu[:,0] = [0.5*100, 0.7*100]
+Mu[:,1] = [0.6*100, 0.3*100]
+Sigma = np.zeros((2,2,2))
+sigma1_tmp= np.array([[0.3],[0.1]])
+Sigma[:,:,0] = sigma1_tmp @ sigma1_tmp.T * 5e-1 + np.eye(nbVarX)*5e-3
+sigma2_tmp= np.array([[0.1],[0.2]])
+Sigma[:,:,1] = sigma2_tmp @ sigma2_tmp.T * 3e-1 + np.eye(nbVarX)*1e-2 
+
+eigvals1, eigvecs1 = np.linalg.eigh(Sigma[:,:,0])
+scaled_eigvals1 = eigvals1 * 100
+Sigma[:,:,0] = eigvecs1 @ np.diag(scaled_eigvals1) @ eigvecs1.T
+
+eigvals2, eigvecs2 = np.linalg.eigh(Sigma[:,:,1])
+scaled_eigvals2 = eigvals2 * 100
+Sigma[:,:,1] = eigvecs2 @ np.diag(scaled_eigvals2) @ eigvecs2.T
+Priors = np.ones(nbStates) / nbStates # Mixing coeffic
 
 # # #image_path = "black_circle.png"
 # #image_path = "dog_grey.jpg"
 image_path = "spatial_distribution.png"
 
-halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], "uniform", num_iterations)
+halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], Mu, Sigma, Priors,"random", num_iterations)
 agents = halftoning.run()
 
 

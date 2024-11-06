@@ -6,7 +6,7 @@ from PIL import Image
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path,xdom, ydom, num_iterations = 250, target_resolution=(10, 10), displacement_threshold=1e-2):
+    def __init__(self, num_agents, image_path,xdom, ydom, num_iterations = 250, target_resolution=(50, 50), displacement_threshold=2.5e-3):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
@@ -140,7 +140,7 @@ class ElectrostaticHalftoning:
     def evolve_particles(self):
         '''Compute particle movement'''
         positions_over_time = []
-        tau = 0.006  # Step size, reduce it for more fine-grained movement
+        tau = 0.5  # Step size, reduce it for more fine-grained movement
         shaking_strength = 0.001  # Shaking strength
         converged = False
 
@@ -161,12 +161,7 @@ class ElectrostaticHalftoning:
                     if i != j:
                         forcep -= self.compute_force(p, q) #Repulsive forces are negative
                         tot -= self.compute_force(p, q)
-
-                # if iteration % 30 == 0:
-                print("Repulsion",tot) 
-                #         print( "Total",forcep)
-                quit()
-                      
+   
 
                 # Update particle position
                 self.particles[:, i] = p + tau * forcep
@@ -245,11 +240,17 @@ class ElectrostaticHalftoning:
     def plot_force_field(self):
         '''Plot the force field as a vector field -> for debugging'''
 
-        # Generate the grid points
-        grid_points_x, grid_points_y = np.meshgrid(np.arange(self.xlim[0], self.xlim[1]),np.arange(self.ylim[0], self.ylim[1]))
+         # Generate the grid points with increased spacing to reduce arrow density
+        grid_points_x, grid_points_y = np.meshgrid(np.arange(self.xlim[0], self.xlim[1],2),
+                                                np.arange(self.ylim[0], self.ylim[1],2))
 
-        # Plot the force field, scaling the arrows by the force magnitude
-        plt.quiver(grid_points_x, grid_points_y, self.forcefield[:, :, 0], self.forcefield[:, :, 1], color='b',scale=10, scale_units='xy')  
+        # Subsample the force field to mtch the reduced number of grid points
+        force_x = self.forcefield[::2, ::2, 0]
+        force_y = self.forcefield[::2, ::2, 1]
+
+        # Plot the force field with adjusted arrow scaling and head size
+        plt.quiver(grid_points_x, grid_points_y, force_x, force_y, color='b',
+                scale=6, scale_units='xy', headwidth=2, headlength=3)
 
         # Adjust plot settings
         plt.gca().invert_yaxis()
@@ -295,6 +296,7 @@ class ElectrostaticHalftoning:
         
         #Compute the force field (plot for debugging)
         self.forcefield = self.compute_force_field()
+        self.plot_force_field()
         
         # Initialize particles in the  domain
         self.particles = self.initialize_particles()
@@ -311,14 +313,14 @@ class ElectrostaticHalftoning:
         return agents
 
 #Example usages
-num_agents = 50
+num_agents = 150
 num_iterations =500
 
 #image_path = "black_circle.png"
-image_path = "dog_grey.jpg"
+image_path = "spatial_distribution.png"
 
 
 halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], num_iterations)
 agents = halftoning.run()
-print(agents.shape)
+
 
