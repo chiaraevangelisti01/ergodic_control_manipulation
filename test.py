@@ -106,7 +106,7 @@ def plot_force_field(forcefield):
         plt.show()
 
 Mu = np.zeros((2,2))
-Mu[:,0] = [0.5*100, 0.7*100]
+Mu[:,0] = [0.5, 0.7]*100
 Mu[:,1] = [0.6*100, 0.3*100]
 Sigma = np.zeros((2,2,2))
 sigma1_tmp= np.array([[0.3],[0.1]])
@@ -116,6 +116,7 @@ Sigma[:,:,1] = sigma2_tmp @ sigma2_tmp.T * 3e-1 + np.eye(nbVarX)*1e-2
 
 eigvals1, eigvecs1 = np.linalg.eigh(Sigma[:,:,0])
 scaled_eigvals1 = eigvals1 * 100
+print(scaled_eigvals1)
 Sigma[:,:,0] = eigvecs1 @ np.diag(scaled_eigvals1) @ eigvecs1.T
 
 eigvals2, eigvecs2 = np.linalg.eigh(Sigma[:,:,1])
@@ -124,10 +125,10 @@ Sigma[:,:,1] = eigvecs2 @ np.diag(scaled_eigvals2) @ eigvecs2.T
 Priors = [0.5, 0.5]
 
 # Define the grid for plotting
-x_min = 0
-x_max = 100
-y_min = 0
-y_max = 100
+x_min = -50
+x_max = 150
+y_min = -50
+y_max = 150
 
 x = np.linspace(x_min, x_max, 100)
 y = np.linspace(y_min, y_max, 100)
@@ -146,21 +147,15 @@ rv2 = multivariate_normal(mean=Mu[:, 1], cov=Sigma[:, :, 1])
 Z2 = rv2.pdf(pos)*0.5
 
 # Plotting
-fig, ax = plt.subplots(figsize=(8, 6))
-
-# Filled contour for Gaussian 1
-ax.contourf(x, y, Z1, cmap='Blues', alpha=0.6)
-ax.scatter(Mu[0, 0], Mu[1, 0], color='blue', marker='x', label='Gaussian 1 Mean')
-
-# Filled contour for Gaussian 2
-ax.contourf(x, y, Z2, cmap='Reds', alpha=0.6)
-ax.scatter(Mu[0, 1], Mu[1, 1], color='red', marker='x', label='Gaussian 2 Mean')
-
-# Plot settings
-ax.set_title('Filled Contour Plot of Two Gaussian Distributions')
-ax.set_xlabel('X-axis')
-ax.set_ylabel('Y-axis')
-ax.legend()
+plt.figure(figsize=(10, 8))
+plt.contour(X, Y, Z1, levels=10, cmap="Blues", alpha=0.6)  # Gaussian 1
+plt.contour(X, Y, Z2, levels=10, cmap="Reds", alpha=0.6)   # Gaussian 2
+plt.scatter(*Mu[:, 0], color="blue", marker="o", label="Mean 1")
+plt.scatter(*Mu[:, 1], color="red", marker="x", label="Mean 2")
+plt.xlabel("X")
+plt.ylabel("Y")
+plt.legend()
+plt.title("Gaussian Mixture Model Contours")
 plt.show()
 
 forcefield = ff2(Mu, Sigma, Priors)
