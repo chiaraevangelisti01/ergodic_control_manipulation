@@ -106,7 +106,7 @@ def plot_force_field(forcefield):
         plt.show()
 
 Mu = np.zeros((2,2))
-Mu[:,0] = [0.5, 0.7]*100
+Mu[:,0] = [0.5*100, 0.7*100]
 Mu[:,1] = [0.6*100, 0.3*100]
 Sigma = np.zeros((2,2,2))
 sigma1_tmp= np.array([[0.3],[0.1]])
@@ -115,20 +115,20 @@ sigma2_tmp= np.array([[0.1],[0.2]])
 Sigma[:,:,1] = sigma2_tmp @ sigma2_tmp.T * 3e-1 + np.eye(nbVarX)*1e-2 
 
 eigvals1, eigvecs1 = np.linalg.eigh(Sigma[:,:,0])
-scaled_eigvals1 = eigvals1 * 100
-print(scaled_eigvals1)
+scaled_eigvals1 = eigvals1 * 10000
+#print(scaled_eigvals1)
 Sigma[:,:,0] = eigvecs1 @ np.diag(scaled_eigvals1) @ eigvecs1.T
 
 eigvals2, eigvecs2 = np.linalg.eigh(Sigma[:,:,1])
-scaled_eigvals2 = eigvals2 * 100
+scaled_eigvals2 = eigvals2 * 10000
 Sigma[:,:,1] = eigvecs2 @ np.diag(scaled_eigvals2) @ eigvecs2.T
 Priors = [0.5, 0.5]
 
 # Define the grid for plotting
-x_min = -50
-x_max = 150
-y_min = -50
-y_max = 150
+x_min = 0
+x_max = 100
+y_min = 0
+y_max = 100
 
 x = np.linspace(x_min, x_max, 100)
 y = np.linspace(y_min, y_max, 100)
@@ -146,17 +146,25 @@ Z1 = rv1.pdf([pos])*0.5
 rv2 = multivariate_normal(mean=Mu[:, 1], cov=Sigma[:, :, 1])
 Z2 = rv2.pdf(pos)*0.5
 
+# Combine the PDFs
+Z_combined = Z1 + Z2
+
 # Plotting
-plt.figure(figsize=(10, 8))
-plt.contour(X, Y, Z1, levels=10, cmap="Blues", alpha=0.6)  # Gaussian 1
-plt.contour(X, Y, Z2, levels=10, cmap="Reds", alpha=0.6)   # Gaussian 2
-plt.scatter(*Mu[:, 0], color="blue", marker="o", label="Mean 1")
-plt.scatter(*Mu[:, 1], color="red", marker="x", label="Mean 2")
+plt.figure(figsize=(10, 10))
+plt.axis("off")
+contour =plt.contourf(X, Y, Z_combined, levels=8, cmap="gray_r", alpha=1)  # Increase levels for more contours
+#cbar = plt.colorbar(contour)
+#cbar.set_label("Density", color="black")
+#plt.scatter(*Mu[:, 0], color="blue", marker="o", label="Mean 1")
+#plt.scatter(*Mu[:, 1], color="red", marker="x", label="Mean 2")
 plt.xlabel("X")
 plt.ylabel("Y")
-plt.legend()
-plt.title("Gaussian Mixture Model Contours")
+#plt.legend()
+#plt.title("Gaussian Mixture Model in Grayscale (Increased Spread)")
+plt.tight_layout(pad = 0)
+plt.savefig('original_distribution.png')
 plt.show()
+
 
 forcefield = ff2(Mu, Sigma, Priors)
 plot_force_field(forcefield)

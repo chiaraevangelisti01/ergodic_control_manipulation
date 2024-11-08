@@ -378,13 +378,13 @@ for i in range(1, param.nbData):
     control_inputs[i - 1] = delta_pos
 
 # # Plot the GMM and modulated sine wave trajectory
-# fig, ax = plt.subplots(figsize=(8, 8))
-# plot_gmm(param.Mu, param.Sigma, ax)
-# plot_trajectory(x_modulated, ax)
-# plt.show()
+fig, ax = plt.subplots(figsize=(8, 8))
+#plot_gmm(param.Mu, param.Sigma, ax)
+#plot_trajectory(initial_trajectory, ax)
+plt.show()
 
 # # Plot the control inputs (velocity magnitudes over time)
-# plot_control_inputs(control_inputs, ax)
+plot_control_inputs(control_inputs, ax)
 
 
 # iLQR
@@ -399,6 +399,8 @@ x0 = np.concatenate(([0.1, 0.1], np.zeros(param.nbVarX - param.nbVarPos))).resha
 
 
 for i in range(param.nbIter):
+    print(Sx.shape)
+    print(x0.shape)
     x = Su @ u + Sx @ x0 # System evolution
 
     fd, Jd = f_domain(x[idp-1], param)
