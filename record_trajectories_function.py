@@ -1,3 +1,7 @@
+"""
+Copyright (c) 2024 Idiap Research Institute <contact@idiap.ch>
+"""
+
 import os
 import time
 import glob

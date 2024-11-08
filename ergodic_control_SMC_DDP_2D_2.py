@@ -5,7 +5,6 @@ Copyright (c) 2023 Idiap Research Institute <https://www.idiap.ch/>
 Written by Jérémy Maceiras <jeremy.maceiras@idiap.ch> and
 Sylvain Calinon <https://calinon.ch>
 
-This file is part of RCFS <https://robotics-codes-from-scratch.github.io/>
 License: GPL-3.0-only
 '''
 
@@ -94,7 +93,7 @@ def f_reach(x ,param):
 def f_curvature(x, param):
     
     dx = x[param.nbVarPos:param.nbVarPos * 2, :]  # Velocity (first derivative)
-    ddx = x[param.nbVarPos*2:param.nbVarPos * 3, :]  # Acceleration, equivalent to second derivative (control input)
+    ddx = x[param.nbVarPos*2:param.nbVarPos * 3, :]  # Acceleration
     
     dxn = np.sum(dx**2, axis=0)**(3/2)
     f = (dx[0, :] * ddx[1, :] - dx[1, :] * ddx[0, :]) / (dxn + 1E-8)
@@ -361,7 +360,7 @@ for i in range(param.nbIter):
     fd, Jd = f_domain(x[idp-1], param)
     w, J = f_ergodic(x[idp-1], param) # Fourier series coefficients and Jacobian
     fr, Jr = f_reach(x[idx-1], param) # Reach target
-    fc, Jc = f_curvature(x.reshape(param.nbVarX,param.nbData),param)
+    fc, Jc = f_curvature(x.reshape(param.nbVarX,param.nbData, order = 'F'),param)
     f = w - w_hat # Residual
     fc_delta = fc.reshape(-1,1) - fc_ref.reshape(-1,1)
   
@@ -386,7 +385,7 @@ for i in range(param.nbIter):
         xtmp = Sx @ x0 + Su @ utmp
         fdtmp, _ = f_domain(xtmp[idp-1], param)  # Residuals and Jacobians for staying within bounded domain
         frtmp, _ = f_reach(xtmp[idx-1], param)  # Residuals and Jacobians for reaching target
-        fctmp, _ = f_curvature(xtmp.reshape(param.nbVarX,param.nbData),param)
+        fctmp, _ = f_curvature(xtmp.reshape(param.nbVarX,param.nbData, order = 'F'),param)
         wtmp, _ = f_ergodic(xtmp[idp-1], param)
         
         ftmp = wtmp - w_hat 

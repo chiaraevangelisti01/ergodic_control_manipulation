@@ -1,3 +1,12 @@
+'''
+Trajectory optimization for ergodic control problem 
+
+Copyright (c) 2023 Idiap Research Institute <https://www.idiap.ch/>
+Written by Jérémy Maceiras <jeremy.maceiras@idiap.ch> and
+Sylvain Calinon <https://calinon.ch>
+
+License: GPL-3.0-only
+'''
 '''Merging sine initialization and ergodic control SMC DDP 2D'''
 import numpy as np
 import numpy.matlib
@@ -395,7 +404,7 @@ for i in range(param.nbIter):
     fd, Jd = f_domain(x[idp-1], param)
     w, J = f_ergodic(x[idp-1], param) # Fourier series coefficients and Jacobian
     fr, Jr = f_reach(x[idx-1], param) # Reach target
-    fc, Jc = f_curvature(x.reshape(param.nbVarX,param.nbData),param)
+    fc, Jc = f_curvature(x.reshape(param.nbVarX,param.nbData,order = 'F'),param)
     f = w - w_hat # Residual
     fc_delta = fc.reshape(-1,1) - fc_ref.reshape(-1,1)
   
@@ -419,7 +428,7 @@ for i in range(param.nbIter):
         xtmp = Sx @ x0 + Su @ utmp
         fdtmp, _ = f_domain(xtmp[idp-1], param)  # Residuals and Jacobians for staying within bounded domain
         frtmp, _ = f_reach(xtmp[idx-1], param)  # Residuals and Jacobians for reaching target
-        fctmp, _ = f_curvature(xtmp.reshape(param.nbVarX,param.nbData),param)
+        fctmp, _ = f_curvature(xtmp.reshape(param.nbVarX,param.nbData, order = 'F'),param)
         wtmp, _ = f_ergodic(xtmp[idp-1], param)
         ftmp = wtmp - w_hat 
         cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(fctmp-fc_ref)**2 * param.qc + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r

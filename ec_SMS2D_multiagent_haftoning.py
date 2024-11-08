@@ -1,3 +1,12 @@
+'''
+Trajectory optimization for ergodic control problem 
+
+Copyright (c) 2023 Idiap Research Institute <https://www.idiap.ch/>
+Written by Jérémy Maceiras <jeremy.maceiras@idiap.ch> and
+Sylvain Calinon <https://calinon.ch>
+
+License: GPL-3.0-only
+'''
 import numpy.matlib
 import numpy as np
 import matplotlib.pyplot as plt
