@@ -31,7 +31,7 @@ class ElectrostaticHalftoning:
         self.particles = None
         self.required_particles = None
         self.sf_agent = None #Scaling factor for the forces to account for number of agents different from number of particles
-        self.sf_attraction = 30/(self.num_agents**0.65)  #Scaling factor for the attractive forces to account for the analytical force field
+        self.sf_attraction = 15  #Scaling factor for the attractive forces to account for the analytical force field
         print(self.sf_attraction)
 
     ######################INPUT DATA PROCESSING FUNCTIONS###########################
@@ -58,7 +58,7 @@ class ElectrostaticHalftoning:
         spread_factor = self.target_resolution[0] /self.xdom[1] 
 
         for i in range(self.Mu.shape[1]):
-            self.Sigma[:, :, i] = self.scale_covariance(self.Sigma[:, :, i], spread_factor)
+            self.Sigma[:, :, i] = self.scale_covariance(self.Sigma[:, :, i], spread_factor**2)
             self.Mu[:,i] = self.Mu[:,i]*spread_factor
 
         return
@@ -70,29 +70,23 @@ class ElectrostaticHalftoning:
         return int(np.round(np.sum(1 - self.image)))
 
     
-    def analytical_force_field(self,x):
-        '''Compute the force field analytically at the given location using the Gaussian mixture model'''
-        x = x[::-1]
-        nbStates = self.Mu.shape[1]  # Number of Gaussian components
-        grad_f = np.zeros(len(x))    # Initialize the gradient
-        pdf_value = 0.0         # Initialize the total PDF value
+    def analytical_force_field(self):
+        '''Compute the force field analytically '''
 
-        for k in range(nbStates):
-            mu_k = self.Mu[:, k]
-            sigma_k = self.Sigma[:, :, k]
-            prior_k = self.Priors[k]
-        
-            sigma_inv = np.linalg.inv(sigma_k)
-            rv_k = multivariate_normal(mean=mu_k, cov=sigma_k)
-            f_k = rv_k.pdf(x)*prior_k
-            
-            pdf_value += f_k
-            grad_f += f_k * np.dot(sigma_inv, mu_k - x)
-            
-        if pdf_value > 0:
-            grad_f /= pdf_value
-        
-        return grad_f
+        x = np.linspace(self.xlim[0], self.xlim[1], self.target_resolution[0])
+        y = np.linspace(self.ylim[0], self.ylim[1], self.target_resolution[1])
+        X, Y = np.meshgrid(x, y)
+        pos = np.dstack((X, Y))
+        Z = np.zeros(pos.shape[:2])
+
+        for k in range(self.Mu.shape[1]):
+           
+            Z += self.Priors[k]*multivariate_normal.pdf(pos, mean=self.Mu[:,k], cov=self.Sigma[:,:,k])
+    
+        grad_y, grad_x = np.gradient(Z,y,x)
+        grad_f =np.stack((grad_x, grad_y),axis=-1)
+
+        return grad_f/(np.max(grad_f))
             
     
     def initialize_particles(self):
@@ -132,6 +126,33 @@ class ElectrostaticHalftoning:
                 particles = particles[:,selected_indices]
             
         return particles.astype(np.float64)
+    
+    def bilinear_interpolation(self, forcefield, p):
+        '''Bilinear interpolation for force field'''
+        x, y = p[:2] 
+        x0 = int(np.floor(x))
+        x1 = x0 + 1
+        y0 = int(np.floor(y))
+        y1 = y0 + 1
+
+        x0 = np.clip(x0, 0, forcefield.shape[0] - 1)
+        x1 = np.clip(x1, 0, forcefield.shape[0] - 1)
+        y0 = np.clip(y0, 0, forcefield.shape[1] - 1)
+        y1 = np.clip(y1, 0, forcefield.shape[1] - 1)
+
+        tx = x - x0
+        ty = y - y0
+
+        f00 = forcefield[x0, y0]
+        f01 = forcefield[x0, y1]
+        f10 = forcefield[x1, y0]
+        f11 = forcefield[x1, y1]
+
+        fx0 = f00 * (1 - tx) + f10 * tx
+        fx1 = f01 * (1 - tx) + f11 * tx
+
+        fxy = fx0 * (1 - ty) + fx1 * ty
+        return fxy
 
     def compute_force_all(self, particles):
         '''Compute force between all particles at once using vectorized operations in 2D space'''
@@ -166,13 +187,12 @@ class ElectrostaticHalftoning:
                 p_old = p.copy()  
 
                 # Apply bilinear interpolation for attractive forces
-                #attractive_force = self.bilinear_interpolation(self.forcefield, p)
-                attractive_force = self.analytical_force_field(p)
+                attractive_force = self.bilinear_interpolation(self.forcefield, p)
                 #print("Attractive force:", attractive_force)
                 #print("Repulsive force: ", forces[:, i])
                 
                 # Combine repulsive and attractive forces
-                total_force = forces[:, i] + attractive_force[::-1]/self.sf_attraction
+                total_force = forces[:, i] + attractive_force[::-1]*self.sf_attraction
 
                 # Update particle position
                 self.particles[:, i] = p + tau * total_force
@@ -214,7 +234,7 @@ class ElectrostaticHalftoning:
         self.sf_agents = self.num_agents / self.required_particles
         
         #Compute the force field (plot for debugging)
-        self.forcefield = self.ff2()
+        self.forcefield = self.analytical_force_field()
         self.plot_force_field()
         
         # Initialize particles in the  domain
@@ -234,10 +254,10 @@ class ElectrostaticHalftoning:
         '''Scale agent positions to a new domain [xlow, xup] * [ylow, yup]'''
     
         # Scale the x coordinates
-        positions[0,:] = (positions[0, :] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * (xup - xlow) + xlow
+        positions[0,:] = (positions[0, :] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * (yup - ylow) + ylow
         
         # Scale the y coordinates
-        positions[1,:] = (positions[1, :] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * (yup - ylow) + ylow
+        positions[1,:] = (positions[1, :] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * (xup - xlow) + xlow
         
         # Return the scaled positions as a 2xN array
         return positions
@@ -319,23 +339,12 @@ class ElectrostaticHalftoning:
 
         # Plot the force field with adjusted arrow scaling and head size
         plt.quiver(grid_points_x, grid_points_y, force_x, force_y, color='b',
-                scale=6, scale_units='xy', headwidth=1.5, headlength=2)
+                scale=0.1, scale_units='xy', headwidth=1.5, headlength=2)
 
         # Adjust plot settings
         plt.gca()#.invert_yaxis()
         plt.show()
 
-     ######################DEBUGGING FUNCTIONS###########################
-
-    def ff2(self):
-        grid_points = np.array(np.meshgrid(np.arange(self.xlim[0], self.xlim[1]), np.arange(self.ylim[0], self.ylim[1])))
-        forcefield = np.zeros((grid_points.shape[1], grid_points.shape[2], 2))  #  2D forces
-
-        for ip, jp in np.ndindex(grid_points.shape[1], grid_points.shape[2]):  # Imaginary charge moving over the grid
-              
-            forcefield[ip, jp] = self.analytical_force_field(np.array([ip, jp]) )[::-1] 
-                               
-        return forcefield
     ######################PAST FUNCTIONS###########################
     
     def sample_agents(self,final_particles):
@@ -349,32 +358,6 @@ class ElectrostaticHalftoning:
     
         return sampled_particles
     
-    def bilinear_interpolation(self, forcefield, p):
-        '''Bilinear interpolation for force field'''
-        x, y = p[:2] 
-        x0 = int(np.floor(x))
-        x1 = x0 + 1
-        y0 = int(np.floor(y))
-        y1 = y0 + 1
-
-        x0 = np.clip(x0, 0, forcefield.shape[0] - 1)
-        x1 = np.clip(x1, 0, forcefield.shape[0] - 1)
-        y0 = np.clip(y0, 0, forcefield.shape[1] - 1)
-        y1 = np.clip(y1, 0, forcefield.shape[1] - 1)
-
-        tx = x - x0
-        ty = y - y0
-
-        f00 = forcefield[x0, y0]
-        f01 = forcefield[x0, y1]
-        f10 = forcefield[x1, y0]
-        f11 = forcefield[x1, y1]
-
-        fx0 = f00 * (1 - tx) + f10 * tx
-        fx1 = f01 * (1 - tx) + f11 * tx
-
-        fxy = fx0 * (1 - ty) + fx1 * ty
-        return fxy
     
     def compute_force_field(self):
         '''Compute the force field using vectorized operations.'''

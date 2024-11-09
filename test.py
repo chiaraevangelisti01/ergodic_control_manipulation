@@ -137,17 +137,29 @@ X, Y = np.meshgrid(x, y)
 # Compute the PDF values for each Gaussian
 pos = np.dstack((X, Y))
 
+
 # Gaussian 1
 rv1 = multivariate_normal(mean=Mu[:, 0], cov=Sigma[:, :, 0])
 Z1 = rv1.pdf([pos])*0.5
+print(Mu[:, 0])
+print(Sigma[:, :, 0])
 
 
 # Gaussian 2
 rv2 = multivariate_normal(mean=Mu[:, 1], cov=Sigma[:, :, 1])
 Z2 = rv2.pdf(pos)*0.5
+print(Z1.shape)
 
 # Combine the PDFs
 Z_combined = Z1 + Z2
+
+grad_Z_combined_y, grad_Z_combined_x = np.gradient(Z_combined, y, x)
+scaling_factor = 1.4e6  # Adjust this factor as needed to make arrows visible
+grad_Z_combined_x *= scaling_factor
+grad_Z_combined_y *= scaling_factor
+forcefield2 = np.stack((grad_Z_combined_x, grad_Z_combined_y), axis=-1)
+plot_force_field(forcefield2)
+
 
 # Plotting
 plt.figure(figsize=(10.5, 10.5))
@@ -166,6 +178,7 @@ plt.savefig('original_distribution.png')
 plt.show()
 
 
-forcefield = ff2(Mu, Sigma, Priors)
+forcefield = ff2(Mu, Sigma, Priors)*50
 plot_force_field(forcefield)
+
 
