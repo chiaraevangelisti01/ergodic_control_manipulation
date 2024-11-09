@@ -150,7 +150,7 @@ Z2 = rv2.pdf(pos)*0.5
 Z_combined = Z1 + Z2
 
 # Plotting
-plt.figure(figsize=(10, 10))
+plt.figure(figsize=(10.5, 10.5))
 plt.axis("off")
 contour =plt.contourf(X, Y, Z_combined, levels=8, cmap="gray_r", alpha=1)  # Increase levels for more contours
 #cbar = plt.colorbar(contour)

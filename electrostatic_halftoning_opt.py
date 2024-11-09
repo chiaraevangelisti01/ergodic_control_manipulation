@@ -104,7 +104,7 @@ class ElectrostaticHalftoning:
 
         if self.initialization == 'random':
 
-            gray_values = self.image.flatten()  # Flatten the grayscale image to match coordinates
+            gray_values = np.flipud(self.image).flatten()  # Flatten the grayscale image to match coordinates
             max_grey = np.max(gray_values)
             
             # Apply probability filtering based on the grayscale values, ensuring that darker pixels have a higher chance
@@ -214,8 +214,8 @@ class ElectrostaticHalftoning:
         self.sf_agents = self.num_agents / self.required_particles
         
         #Compute the force field (plot for debugging)
-        #self.forcefield = self.ff2()
-        #self.plot_force_field()
+        self.forcefield = self.ff2()
+        self.plot_force_field()
         
         # Initialize particles in the  domain
         self.particles = self.initialize_particles()
@@ -414,8 +414,8 @@ class ElectrostaticHalftoning:
 
     
 # # #Example usages
-num_agents = 2000
-num_iterations =200
+num_agents = 150
+num_iterations =300
 
 nbVarX = 2  # State space dimension
 nbStates = 2  # Number of Gaussians to represent the spatial distribution
@@ -440,7 +440,7 @@ Priors = np.ones(nbStates) / nbStates # Mixing coeffic
 
 # # #image_path = "black_circle.png"
 # #image_path = "dog_grey.jpg"
-image_path = "spatial_distribution.png"
+image_path = "original_distribution.png"
 
 halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], Mu, Sigma, Priors,"random", num_iterations)
 agents = halftoning.run()
