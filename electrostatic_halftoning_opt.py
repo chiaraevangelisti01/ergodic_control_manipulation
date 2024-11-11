@@ -9,7 +9,7 @@ import time
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path,xdom, ydom, Mu,Sigma,Priors, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-2):
+    def __init__(self, num_agents, image_path,xdom, ydom, Mu,Sigma,Priors, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=15e-3):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
@@ -31,8 +31,8 @@ class ElectrostaticHalftoning:
         self.particles = None
         self.required_particles = None
         self.sf_agent = None #Scaling factor for the forces to account for number of agents different from number of particles
-        self.sf_attraction = 15  #Scaling factor for the attractive forces to account for the analytical force field
-        print(self.sf_attraction)
+        self.sf_attraction = self.num_agents**0.85, #Scaling factor for the attractive forces to account for the analytical force field
+        
 
     ######################INPUT DATA PROCESSING FUNCTIONS###########################
     def process_image(self,image_path):
@@ -57,12 +57,15 @@ class ElectrostaticHalftoning:
         '''Scale the covariances while preserving their structure: assuming square domain'''
         spread_factor = self.target_resolution[0] /self.xdom[1] 
 
+        if len(self.Mu.shape) == 1:
+            self.Mu = self.Mu.reshape(-1,1)
+            self.Sigma = self.Sigma.reshape(2,2,1)
+
         for i in range(self.Mu.shape[1]):
             self.Sigma[:, :, i] = self.scale_covariance(self.Sigma[:, :, i], spread_factor**2)
             self.Mu[:,i] = self.Mu[:,i]*spread_factor
 
         return
-
 
      ######################ALGORITHM FUNCTIONS ###########################
     def number_particles(self):
@@ -86,7 +89,7 @@ class ElectrostaticHalftoning:
         grad_y, grad_x = np.gradient(Z,y,x)
         grad_f =np.stack((grad_x, grad_y),axis=-1)
 
-        return grad_f/(np.max(grad_f))
+        return grad_f/Z[:,:,np.newaxis]
             
     
     def initialize_particles(self):
@@ -165,7 +168,7 @@ class ElectrostaticHalftoning:
         np.fill_diagonal(distances, np.inf)
         
         # Unit vector, coulomb law in 1d (1/distance^2), broadcasting to apply force direction
-        forces = delta / distances**2
+        forces = delta / (distances**2+ 1e-8)
         
         return np.sum(forces, axis=2)
 
@@ -173,7 +176,7 @@ class ElectrostaticHalftoning:
     def evolve_particles(self):
         '''Compute particle movement in parallel using vectorized operations'''
         positions_over_time = [self.particles.copy()]  # Store the initial positions
-        tau = 0.1#(self.num_agents*self.displacement_threshold)/(self.num_iterations)#0.006  # Step size, reduce it for more fine-grained movement
+        tau = 0.05#(self.displacement_threshold*self.num_iterations)/self.num_agents**1.05#0.006  # Step size, reduce it for more fine-grained movement
         shaking_strength = 0.001  # Shaking strength
         converged = False
 
@@ -195,7 +198,7 @@ class ElectrostaticHalftoning:
                 total_force = forces[:, i] + attractive_force[::-1]*self.sf_attraction
 
                 # Update particle position
-                self.particles[:, i] = p + tau * total_force
+                self.particles[:, i] = np.clip(p + tau * total_force, [self.xlim[0], self.ylim[0]], [self.xlim[1], self.xlim[1]])
 
                 # Calculate displacement by comparing with the old position (before update)
                 displacement = np.linalg.norm(self.particles[:, i] - p_old)
@@ -397,8 +400,8 @@ class ElectrostaticHalftoning:
 
     
 # # #Example usages
-num_agents = 150
-num_iterations =300
+num_agents = 200
+num_iterations =500
 
 nbVarX = 2  # State space dimension
 nbStates = 2  # Number of Gaussians to represent the spatial distribution
@@ -411,14 +414,10 @@ sigma1_tmp= np.array([[0.3],[0.1]])
 Sigma[:,:,0] = sigma1_tmp @ sigma1_tmp.T * 5e-1 + np.eye(nbVarX)*5e-3
 sigma2_tmp= np.array([[0.1],[0.2]])
 Sigma[:,:,1] = sigma2_tmp @ sigma2_tmp.T * 3e-1 + np.eye(nbVarX)*1e-2 
+# Mu = np.array([0.5, 0.7])
+# sigma1_tmp= np.array([[0.3],[0.1]])
+# Sigma= sigma1_tmp @ sigma1_tmp.T * 5e-1 + np.eye(nbVarX)*5e-3
 
-# eigvals1, eigvecs1 = np.linalg.eigh(Sigma[:,:,0])
-# scaled_eigvals1 = eigvals1 * 100
-# Sigma[:,:,0] = eigvecs1 @ np.diag(scaled_eigvals1) @ eigvecs1.T
-
-# eigvals2, eigvecs2 = np.linalg.eigh(Sigma[:,:,1])
-# scaled_eigvals2 = eigvals2 * 100
-# Sigma[:,:,1] = eigvecs2 @ np.diag(scaled_eigvals2) @ eigvecs2.T
 Priors = np.ones(nbStates) / nbStates # Mixing coeffic
 
 # # #image_path = "black_circle.png"
