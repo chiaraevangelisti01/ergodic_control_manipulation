@@ -17,9 +17,9 @@ import matplotlib.pyplot as plt
 # ===============================
 
 # Cost and gradient for a viapoints reaching task (in object coordinate system)
-def f_reach(x, param):
+def f_reach(x, param, iter):
     ftmp, _ = fkin(x, param)
-    f = logmap(ftmp, param.Mu)
+    f = logmap(ftmp, param.Mu[:,iter].reshape(-1,1))
     J = Jkin_num(x[:,0], param)
     return f, J
 
@@ -46,7 +46,7 @@ def fkin0(x, param):
         st = np.sin(x[n] + param.dh.q_offset[n])
         ca = np.cos(param.dh.alpha[n])
         sa = np.sin(param.dh.alpha[n])
-        
+
         if param.dh.convention == "m":
             Tf = Tf @ [[ct,    -st,     0,   param.dh.r[n]   ],
                     [st*ca,  ct*ca, -sa, -param.dh.d[n]*sa],
@@ -56,8 +56,8 @@ def fkin0(x, param):
             Tf = Tf @ [[ct,    -st*ca,     st*sa,   param.dh.r[n]*ct   ],
                    [st,  ct*ca, -ct*sa, param.dh.r[n]*st],
                    [0,  sa,  ca,  param.dh.d[n]],
-                   [0,      0,      0,   1               ]] 
-        
+                   [0,      0,      0,   1               ]]
+
         R[:,:,n] = Tf[0:3,0:3]
         f[:,n+1] = Tf[0:3,-1]
     return f, R
@@ -146,12 +146,22 @@ param.nbIter = 50 # Maximum number of iterations for iLQR
 param.nbVarX = 6 # State space dimension (x1,x2,x3)
 param.nbVarU = param.nbVarX # Control space dimension (dx1,dx2,dx3)
 param.nbVarF = 7 # Task space dimension (f1,f2,f3 for position, f4,f5,f6,f7 for unit quaternion)
+param.nbPoints = 10 #viapoints of the trajectory
 
-Rtmp = q2R([np.cos(np.pi/3), np.sin(np.pi/3), 0.0, 0.0])
-param.MuR = np.dstack((Rtmp, Rtmp))
-param.Mu = np.ndarray((param.nbVarF, 1))
-param.Mu[0:3, 0] = [.2, 0, .2]
-param.Mu[3:7, 0] = R2q(param.MuR[:,:,1])
+param.Mu = np.ndarray((param.nbVarF, param.nbPoints))
+#Define a circular 2d trajectory  for 10 viapoints
+r = 0.3
+theta = np.linspace(0, 2*np.pi, param.nbPoints, endpoint=False)
+x = r * np.cos(theta)
+y = r * np.sin(theta)
+z = 0 # planar trajectory
+orientation = [1.0, 0.0, 0.0, 0.0] #perpendicular to the plane, free rotation around z
+Rtmp = q2R(orientation)
+param.MuR = np.dstack([Rtmp] * param.nbPoints)
+for i in range(param.nbPoints):
+    param.Mu[0:3, i] = [x[i], y[i], z]
+    param.Mu[3:7, i] = R2q(param.MuR[:,:,i])
+param.alpha = 1e-6 # Regularization term
 
 
 # Modified DH parameters of ULite6 Robot
@@ -186,17 +196,46 @@ param.dh.r = [0, 0.2, 0.087, 0, 0, 0, 0] # Length of the common normal
 
 # Main program
 # ===============================
-
+intermediate_configs = []
+viapoints_configs = []
 x0 = np.zeros((6,1)) # Initial robot pose
 x = copy.deepcopy(x0)
 
-for i in range(param.nbIter):
-    e, J = f_reach(x,param)
-    cost = e.T @ e
-#    print(f"Iteration: {i}, cost: {cost}")
-    J = Jkin_num(x.flatten(),param)
-    dx = 0.1 * np.linalg.pinv(J) @ e
-    x -= dx
+
+for i in range(param.nbPoints): #Compute IK for each point in the trajectory
+
+    for j in range(param.nbIter):
+
+        e, J = f_reach(x,param,i)
+       
+        if np.linalg.norm(e) < 1E-2:
+            ftmp, Rtmp = fkin0(x.flatten(), param)
+            viapoints_configs.append((ftmp, Rtmp))
+            print(f'Convergence at iteration {j}')
+            break
+
+        #Define weighting matrix
+        #Rkp = np.identity(param.nbVarF - 1)
+        Rkp = np.zeros((param.nbVarF - 1, param.nbVarF - 1))
+        Rkp[:3, :3] = np.identity(3) #Translation constraint
+        Rkp[3:, 3:] = q2R(param.Mu[-4:, i]) #Orientation constraint
+
+        #Update x
+        J = Jkin_num(x.flatten(),param)
+        dx = np.linalg.inv(J.T @ Rkp @ J + param.alpha * np.identity(J.shape[1])) @ (J.T @ Rkp @ e)
+        x -= 0.1*dx
+
+#     J = Jkin_num(x.flatten(),param)
+#     dx = 0.1 * np.linalg.pinv(J) @ e
+        if j == param.nbIter-1:
+            ftmp, Rtmp = fkin0(x.flatten(), param)
+            viapoints_configs.append((ftmp, Rtmp))
+           
+        else:
+            ftmp, Rtmp = fkin0(x.flatten(), param)
+            intermediate_configs.append((ftmp, Rtmp))
+       
+
 
 # Plots
 # ===============================
@@ -205,11 +244,20 @@ ax = plt.figure(figsize=(12, 10)).add_subplot(projection='3d')
 
 # Plot the robot
 ftmp, _ = fkin0(x0.flatten(), param)
-ax.plot(ftmp[0,:], ftmp[1,:], ftmp[2,:], linewidth=4, color=[.8, .8, .8])
+ax.plot(ftmp[0,:], ftmp[1,:], ftmp[2,:], linewidth=4, color=[1, 1, 1])
 
 ftmp, Rtmp = fkin0(x.flatten(), param)
-ax.plot(ftmp[0,:], ftmp[1,:], ftmp[2,:], linewidth=4, color=[.6, .6, .6])
+ax.plot(ftmp[0,:], ftmp[1,:], ftmp[2,:], linewidth=4, color=[0, 0, 0])
 plotCoordSys(ax, ftmp[:,-1:], Rtmp[:,:,-1:] * .06, width=2)
+
+# Plot each intermediate configuration
+#for ftmp, Rtmp in intermediate_configs:
+    #ax.plot(ftmp[0, :], ftmp[1, :], ftmp[2, :], linewidth=1, color='grey', alpha=0.5)  # Use alpha for transparency
+
+for ftmp, Rtmp in viapoints_configs:
+    ax.plot(ftmp[0, :], ftmp[1, :], ftmp[2, :], linewidth=1, color='green' ) 
+    plotCoordSys(ax, ftmp[:,-1:], Rtmp[:,:,-1:] * .06, width=2)
+
 
 # Plot targets
 plotCoordSys(ax, param.Mu, param.MuR * 0.1)
@@ -224,4 +272,5 @@ ax.set_zlabel(r'$f_3$')
 
 limits = np.array([getattr(ax, f'get_{axis}lim')() for axis in 'xyz'])
 ax.set_box_aspect(np.ptp(limits, axis=1))
+
 plt.show()
