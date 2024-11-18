@@ -146,7 +146,7 @@ param.nbIter = 50 # Maximum number of iterations for iLQR
 param.nbVarX = 6 # State space dimension (x1,x2,x3)
 param.nbVarU = param.nbVarX # Control space dimension (dx1,dx2,dx3)
 param.nbVarF = 7 # Task space dimension (f1,f2,f3 for position, f4,f5,f6,f7 for unit quaternion)
-param.nbPoints = 10 #viapoints of the trajectory
+param.nbPoints = 30 #viapoints of the trajectory
 
 param.Mu = np.ndarray((param.nbVarF, param.nbPoints))
 #Define a circular 2d trajectory  for 10 viapoints
@@ -154,8 +154,13 @@ r = 0.3
 theta = np.linspace(0, 2*np.pi, param.nbPoints, endpoint=False)
 x = r * np.cos(theta)
 y = r * np.sin(theta)
-z = 0 # planar trajectory
-orientation = [1.0, 0.0, 0.0, 0.0] #perpendicular to the plane, free rotation around z
+
+#Define a sine wave trajectory
+# x = np.linspace(-0.3, 0.3, param.nbPoints)
+# y = 0.2 * np.sin(4 * np.pi * x ) + 0.1
+
+z = 0.01 # planar trajectory
+orientation = [0.0, 1.0, 0.0, 0.0] #perpendicular to the plane, opposite direction of z axis, could be also [0.0, 0.0, 1.0, 0]
 Rtmp = q2R(orientation)
 param.MuR = np.dstack([Rtmp] * param.nbPoints)
 for i in range(param.nbPoints):
@@ -225,8 +230,6 @@ for i in range(param.nbPoints): #Compute IK for each point in the trajectory
         dx = np.linalg.inv(J.T @ Rkp @ J + param.alpha * np.identity(J.shape[1])) @ (J.T @ Rkp @ e)
         x -= 0.1*dx
 
-#     J = Jkin_num(x.flatten(),param)
-#     dx = 0.1 * np.linalg.pinv(J) @ e
         if j == param.nbIter-1:
             ftmp, Rtmp = fkin0(x.flatten(), param)
             viapoints_configs.append((ftmp, Rtmp))
