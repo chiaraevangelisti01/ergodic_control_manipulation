@@ -1,4 +1,3 @@
-r = 0.3
-theta = np.linspace(0, 2*np.pi, param.nbPoints, endpoint=False)
-x = r * np.cos(theta)
-y = r * np.sin(theta)
+Rkp = np.zeros((param.nbVarF - 1, param.nbVarF - 1))
+        # Rkp[:3, :3] = np.identity(3) #Translation constraint
+        # Rkp[3:, 3:] = q2R(param.Mu[-4:, i]) #Orientation constraint

@@ -12,6 +12,7 @@ import copy
 import numpy as np
 import numpy.matlib
 import matplotlib.pyplot as plt
+import random
 
 # Helper functions
 # ===============================
@@ -146,25 +147,40 @@ param.nbIter = 50 # Maximum number of iterations for iLQR
 param.nbVarX = 6 # State space dimension (x1,x2,x3)
 param.nbVarU = param.nbVarX # Control space dimension (dx1,dx2,dx3)
 param.nbVarF = 7 # Task space dimension (f1,f2,f3 for position, f4,f5,f6,f7 for unit quaternion)
-param.nbPoints = 30 #viapoints of the trajectory
+param.nbPoints = 10 #viapoints of the trajectory
 
 param.Mu = np.ndarray((param.nbVarF, param.nbPoints))
 #Define a circular 2d trajectory  for 10 viapoints
-r = 0.3
+r = 0.15
 theta = np.linspace(0, 2*np.pi, param.nbPoints, endpoint=False)
-x = r * np.cos(theta)
-y = r * np.sin(theta)
+x = 0.2+r * np.cos(theta)
+y = 0.2+r * np.sin(theta)
 
 #Define a sine wave trajectory
 # x = np.linspace(-0.3, 0.3, param.nbPoints)
 # y = 0.2 * np.sin(4 * np.pi * x ) + 0.1
 
-z = 0.01 # planar trajectory
-orientation = [0.0, 1.0, 0.0, 0.0] #perpendicular to the plane, opposite direction of z axis, could be also [0.0, 0.0, 1.0, 0]
+z = 0.00*np.arange(param.nbPoints)+0.01 # planar trajectory
+base_orientation = [0.0, 1.0, 0.0, 0.0] #perpendicular to the plane, opposite direction of z axis, could be also [0.0, 0.0, 1.0, 0]
+
+#Randm rotation around z axis for testing --> should be misaligned since ingnored
+
+for i in range(param.nbPoints):
+    # Random yaw angle (rotation around Z-axis)
+    random_yaw = random.uniform(0, 2 * np.pi)
+    # Generate quaternion for rotation around Z-axis
+    yaw_quaternion = [np.cos(random_yaw / 2), 0.0, 0.0, np.sin(random_yaw / 2)]
+    orientation = np.array([
+        yaw_quaternion[0] * base_orientation[0] - yaw_quaternion[1] * base_orientation[1] - yaw_quaternion[2] * base_orientation[2] - yaw_quaternion[3] * base_orientation[3],  # w
+        yaw_quaternion[0] * base_orientation[1] + yaw_quaternion[1] * base_orientation[0] + yaw_quaternion[2] * base_orientation[3] - yaw_quaternion[3] * base_orientation[2],  # x
+        yaw_quaternion[0] * base_orientation[2] - yaw_quaternion[1] * base_orientation[3] + yaw_quaternion[2] * base_orientation[0] + yaw_quaternion[3] * base_orientation[1],  # y
+        yaw_quaternion[0] * base_orientation[3] + yaw_quaternion[1] * base_orientation[2] - yaw_quaternion[2] * base_orientation[1] + yaw_quaternion[3] * base_orientation[0]   # z
+    ])
+
 Rtmp = q2R(orientation)
 param.MuR = np.dstack([Rtmp] * param.nbPoints)
 for i in range(param.nbPoints):
-    param.Mu[0:3, i] = [x[i], y[i], z]
+    param.Mu[0:3, i] = [x[i], y[i], z[i]]
     param.Mu[3:7, i] = R2q(param.MuR[:,:,i])
 param.alpha = 1e-6 # Regularization term
 
@@ -197,6 +213,9 @@ param.dh.r = [0, 0.2, 0.087, 0, 0, 0, 0] # Length of the common normal
 # param.dh.d = [0.13122,0,0,0.0634,0.07505,0.0456,0] # Offset along previous z to the common normal
 # param.dh.r = [0,-0.1104,-0.096,0,0,0,0] # Length of the common normal
 
+#Higher weights to ensur perpendicularity and z tracking (making sure it is on the table)
+Qr = np.diag([1.0,1.0,5.0,5.0,5.0,0.0] * param.nbPoints) # Precision matrix in relative coordinate frame (tool frame) (by removing orientation constraint on 3rd axis)
+
 
 
 # Main program
@@ -221,13 +240,16 @@ for i in range(param.nbPoints): #Compute IK for each point in the trajectory
 
         #Define weighting matrix
         #Rkp = np.identity(param.nbVarF - 1)
+        Rkp = np.identity(param.nbVarF - 1)
         Rkp = np.zeros((param.nbVarF - 1, param.nbVarF - 1))
         Rkp[:3, :3] = np.identity(3) #Translation constraint
         Rkp[3:, 3:] = q2R(param.Mu[-4:, i]) #Orientation constraint
+        Q = Rkp.T @ Qr[i*(param.nbVarF-1):(i+1)*(param.nbVarF-1), i*(param.nbVarF-1):(i+1)*(param.nbVarF-1)] @ Rkp
+        
 
         #Update x
         J = Jkin_num(x.flatten(),param)
-        dx = np.linalg.inv(J.T @ Rkp @ J + param.alpha * np.identity(J.shape[1])) @ (J.T @ Rkp @ e)
+        dx = np.linalg.inv(J.T @ Q @ J + param.alpha * np.identity(J.shape[1])) @ (J.T @ Q @ e)
         x -= 0.1*dx
 
         if j == param.nbIter-1:
@@ -255,7 +277,7 @@ plotCoordSys(ax, ftmp[:,-1:], Rtmp[:,:,-1:] * .06, width=2)
 
 # Plot each intermediate configuration
 #for ftmp, Rtmp in intermediate_configs:
-    #ax.plot(ftmp[0, :], ftmp[1, :], ftmp[2, :], linewidth=1, color='grey', alpha=0.5)  # Use alpha for transparency
+     #ax.plot(ftmp[0, :], ftmp[1, :], ftmp[2, :], linewidth=1, color='grey', alpha=0.5)  # Use alpha for transparency
 
 for ftmp, Rtmp in viapoints_configs:
     ax.plot(ftmp[0, :], ftmp[1, :], ftmp[2, :], linewidth=1, color='green' ) 
