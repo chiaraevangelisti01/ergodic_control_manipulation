@@ -4,12 +4,13 @@ import matplotlib.image as mpimg  # For loading the image
 from scipy.ndimage import zoom  # Import zoom for resampling
 from PIL import Image
 from scipy.stats import multivariate_normal
+from scipy.integrate import dblquad
 
 import time
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path,xdom, ydom, Mu,Sigma,Priors, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=15e-3):
+    def __init__(self, num_agents, image_path,xdom, ydom, Mu,Sigma,Priors, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=25e-3):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
@@ -31,7 +32,7 @@ class ElectrostaticHalftoning:
         self.particles = None
         self.required_particles = None
         self.sf_agent = None #Scaling factor for the forces to account for number of agents different from number of particles
-        self.sf_attraction = self.num_agents**0.85, #Scaling factor for the attractive forces to account for the analytical force field
+        self.sf_attraction = self.num_agents**0.4, #Scaling factor for the attractive forces to account for the analytical force field
         
 
     ######################INPUT DATA PROCESSING FUNCTIONS###########################
@@ -56,6 +57,7 @@ class ElectrostaticHalftoning:
     def scale_distribution(self):
         '''Scale the covariances while preserving their structure: assuming square domain'''
         spread_factor = self.target_resolution[0] /self.xdom[1] 
+       
 
         if len(self.Mu.shape) == 1:
             self.Mu = self.Mu.reshape(-1,1)
@@ -64,7 +66,7 @@ class ElectrostaticHalftoning:
         for i in range(self.Mu.shape[1]):
             self.Sigma[:, :, i] = self.scale_covariance(self.Sigma[:, :, i], spread_factor**2)
             self.Mu[:,i] = self.Mu[:,i]*spread_factor
-
+        
         return
 
      ######################ALGORITHM FUNCTIONS ###########################
@@ -88,9 +90,45 @@ class ElectrostaticHalftoning:
     
         grad_y, grad_x = np.gradient(Z,y,x)
         grad_f =np.stack((grad_x, grad_y),axis=-1)
+        grad_f = grad_f/(np.linalg.norm(grad_f,axis=-1, keepdims=True)+1e-15)
 
-        return grad_f/Z[:,:,np.newaxis]
-            
+        return grad_f#/Z[:,:,np.newaxis]
+    
+    def force_field_with_direction(self, p):
+        """
+        Compute the attractive force at position p based on a mixture of Gaussians,
+        including contributions from every point in the integration domain.
+        """
+        # Create a grid of points within the integration domain
+        x1 = np.linspace(self.xlim[0], self.xlim[1], self.target_resolution[0])
+        x2 = np.linspace(self.ylim[0], self.ylim[1], self.target_resolution[1])
+        X1, X2 = np.meshgrid(x1, x2)
+        grid_points = np.stack([X1.ravel(), X2.ravel()], axis=1)  # Flatten the grid
+
+        force = np.zeros(2)
+        Sigma_inv_list = [np.linalg.inv(self.Sigma[:, :, k]) for k in range(len(self.Priors))]
+        
+
+        # Compute the contributions for every point in the domain
+        for k in range(len(self.Priors)):
+            weight = self.Priors[k]
+            mu_k = self.Mu[:, k]
+            Sigma_inv = Sigma_inv_list[k]
+
+            diffs = grid_points - mu_k
+            exp_terms = np.exp(-0.5 * np.einsum("ij,jk,ik->i", diffs, Sigma_inv, diffs))  # Mahalanobis distances
+            f_k = weight * exp_terms  # Weighted density
+
+            diffs_px = -p + grid_points
+            norms_px = np.linalg.norm(diffs_px, axis=1) + 1e-12  # Avoid division by zero
+            transformed_diffs = np.einsum("ij,jk->ik", diffs_px, Sigma_inv)  # Apply Sigma^-1
+            direction_terms = transformed_diffs / norms_px[:, np.newaxis]
+            #direction_terms = diffs_px / norms_px[:, np.newaxis]
+
+            force += np.sum(direction_terms * f_k[:, np.newaxis], axis=0)
+       
+        return force
+
     
     def initialize_particles(self):
         '''Initialize particles in the image randomly, optimizing based on gray values'''
@@ -190,12 +228,13 @@ class ElectrostaticHalftoning:
                 p_old = p.copy()  
 
                 # Apply bilinear interpolation for attractive forces
-                attractive_force = self.bilinear_interpolation(self.forcefield, p)
+                #attractive_force = self.bilinear_interpolation(self.forcefield, p)
+                attractive_force = self.force_field_with_direction(p[::-1])
                 #print("Attractive force:", attractive_force)
                 #print("Repulsive force: ", forces[:, i])
                 
                 # Combine repulsive and attractive forces
-                total_force = forces[:, i] + attractive_force[::-1]*self.sf_attraction
+                total_force = forces[:, i] + attractive_force[::-1]*2.5#*self.sf_attraction
 
                 # Update particle position
                 self.particles[:, i] = np.clip(p + tau * total_force, [self.xlim[0], self.ylim[0]], [self.xlim[1], self.xlim[1]])
@@ -237,7 +276,7 @@ class ElectrostaticHalftoning:
         self.sf_agents = self.num_agents / self.required_particles
         
         #Compute the force field (plot for debugging)
-        self.forcefield = self.analytical_force_field()
+        self.forcefield = self.ff2()
         self.plot_force_field()
         
         # Initialize particles in the  domain
@@ -342,7 +381,7 @@ class ElectrostaticHalftoning:
 
         # Plot the force field with adjusted arrow scaling and head size
         plt.quiver(grid_points_x, grid_points_y, force_x, force_y, color='b',
-                scale=0.1, scale_units='xy', headwidth=1.5, headlength=2)
+                scale=0.007, scale_units='xy', headwidth=1.5, headlength=2)
 
         # Adjust plot settings
         plt.gca()#.invert_yaxis()
@@ -396,12 +435,23 @@ class ElectrostaticHalftoning:
         total_forces = total_forces.reshape(grid_points.shape)  # Reshape total forces back to grid shape (n_x, n_y, 2)
 
         return total_forces
+    
+        
+    def ff2(self):
+        grid_points = np.array(np.meshgrid(np.arange(0, 100), np.arange(0, 100)))
+        forcefield = np.zeros((grid_points.shape[1], grid_points.shape[2], 2))  #  2D forces
+
+        for ip, jp in np.ndindex(grid_points.shape[1], grid_points.shape[2]):  # Imaginary charge moving over the grid
+              
+            forcefield[ip, jp] = self.force_field_with_direction(np.array([jp, ip])) # Scale by grey value
+                               
+        return forcefield
 
 
     
 # # #Example usages
-num_agents = 200
-num_iterations =500
+num_agents = 100
+num_iterations =200
 
 nbVarX = 2  # State space dimension
 nbStates = 2  # Number of Gaussians to represent the spatial distribution

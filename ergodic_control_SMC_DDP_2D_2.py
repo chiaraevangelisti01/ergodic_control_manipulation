@@ -1,13 +1,7 @@
-'''
-Trajectory optimization for ergodic control problem 
-
-Copyright (c) 2023 Idiap Research Institute <https://www.idiap.ch/>
-Written by Jérémy Maceiras <jeremy.maceiras@idiap.ch> and
-Sylvain Calinon <https://calinon.ch>
-
-License: GPL-3.0-only
-'''
-
+# Copyright (c) 2024 Idiap Research Institute <https://www.idiap.ch/>
+#
+# This file is inspired by RCFS <https://robotics-codes-from-scratch.github.io/>
+# License: GPL-3.0-only
 import numpy.matlib
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,6 +11,7 @@ from record_trajectories_function import generate_trajectories
 import glob
 import math
 from scipy.linalg import block_diag
+from scipy.interpolate import splprep, splev
 
 # Helper functions
 # ===============================
@@ -37,14 +32,10 @@ def f_ergodic(x, param):
     phi1[:,:,1] = np.cos(x2_s @ param.kk1.T) / param.L
     dphi1[:,:,1] = - np.sin(x2_s @ param.kk1.T) * np.matlib.repmat(param.kk1.T,param.nbData,1) / param.L
 
-    #phi = phi1[:,xx.flatten(),0] * phi1[:,yy.flatten(),1]
     phi = phi1[:, xx, 0] * phi1[:, yy, 1]
     phi = phi.reshape(param.nbData, -1, order='F')
 
     dphi = np.zeros((param.nbData * param.nbVarPos, param.nbFct**2))
-
-    # dphi[0:param.nbData * param.nbVarPos:2, :]= dphi1[:,xx.flatten(),0] * phi1[:,yy.flatten(),1]
-    # dphi[1:param.nbData * param.nbVarPos:2, :]= phi1[:,xx.flatten(),0] * dphi1[:,yy.flatten(),1]
     dphi[0:param.nbData * param.nbVarPos:2, :] = (dphi1[:, xx, 0] * phi1[:, yy, 1]).reshape(param.nbData, -1, order='F')
     dphi[1:param.nbData * param.nbVarPos:2, :] = (phi1[:, xx, 0] * dphi1[:, yy, 1]).reshape(param.nbData, -1, order='F')
 
@@ -52,7 +43,7 @@ def f_ergodic(x, param):
     J = dphi.T / param.nbData
     return w, J
 
-# Constructs a Hadamard matrix of size n.
+# Constructs a Hadamard matrix of size n
 def hadamard_matrix(n: int) -> np.ndarray:
     # Base case: A Hadamard matrix of size 1 is just [[1]].
     if n == 1:
@@ -98,10 +89,10 @@ def f_curvature(x, param):
     dxn = np.sum(dx**2, axis=0)**(3/2)
     f = (dx[0, :] * ddx[1, :] - dx[1, :] * ddx[0, :]) / (dxn + 1E-8)
     
-    s11 = np.zeros(param.nbVarX); s11[param.nbVarPos] = 1
-    s12 = np.zeros(param.nbVarX); s12[param.nbVarPos + 1] = 1
-    s21 = np.zeros(param.nbVarX); s21[2 * param.nbVarPos] = 1
-    s22 = np.zeros(param.nbVarX); s22[2 * param.nbVarPos + 1] = 1
+    s11 = np.zeros(param.nbDerivCurv*param.nbVarPos); s11[param.nbVarPos] = 1
+    s12 = np.zeros(param.nbDerivCurv*param.nbVarPos); s12[param.nbVarPos + 1] = 1
+    s21 = np.zeros(param.nbDerivCurv*param.nbVarPos); s21[2 * param.nbVarPos] = 1
+    s22 = np.zeros(param.nbDerivCurv*param.nbVarPos); s22[2 * param.nbVarPos + 1] = 1
 
     Sa = np.outer(s11, s22) - np.outer(s12, s21)
     Sb = np.outer(s11, s11) + np.outer(s12, s12)
@@ -118,27 +109,27 @@ def f_curvature(x, param):
         
     return f, J
 
-def reference_curvature(x):
+def reference_curvature(param, x):
     # Compute first derivatives (velocities)
-    dx = np.gradient(x[0, :])
-    dy = np.gradient(x[1, :])
+    dx = np.gradient(x[:, 0], edge_order=2)/param.dt
+    dy = np.gradient(x[:, 1], edge_order=2)/param.dt
 
     # Compute second derivatives (accelerations)
-    ddx = np.gradient(dx)
-    ddy = np.gradient(dy)
+    ddx = np.gradient(dx, edge_order=2)/param.dt
+    ddy = np.gradient(dy, edge_order=2)/param.dt
 
     # Compute curvature using the formula
     dxn = (dx**2 + dy**2)**(3/2)
     fc_ref = (dx * ddy - dy * ddx) / (dxn + 1E-8)  # Avoid division by zero
 
-    return fc_ref
+    return fc_ref.reshape(-1,1) #[:param.nbData]
 
 def transfer_matrices(A, B):
     nbVarX, nbVarU, nbData = B.shape
     nbData = nbData + 1
 
     Sx = np.kron(np.ones((nbData, 1)), np.eye(nbVarX))
-    Su = np.zeros((nbVarX *nbData , nbVarU * (nbData - 1))) #CHECK THIS: ADDITIONAL DIMENSIONS?
+    Su = np.zeros((nbVarX *nbData , nbVarU * (nbData - 1))) 
     
     for t in range(1, nbData):  
         id1 = np.arange((t - 1) * nbVarX, t * nbVarX)
@@ -189,19 +180,20 @@ def create_trajectories(directory, num_agents, num_points, image_path):
 param = lambda: None # Lazy way to define an empty class in python
 param.nbData = 200 # Number of datapoints
 param.nbVarPos = 2 # Position space dimension
-param.nbDeriv = 3 # Number of static and dynamic features (nbDeriv=2 for [x,dx] and u=ddx)
+param.nbDeriv = 1 # Number of static and dynamic features (nbDeriv=2 for [x,dx] and u=ddx)
+param.nbDerivCurv = 3 # Number of derivatives for curvature computation
 param.nbVarX = param.nbVarPos * param.nbDeriv # State space dimension
-param.nbFct = 8 # Number of Fourier basis functsions
+param.nbFct = 8 # Number of Fourier basis functions
 param.nbStates = 2 # Number of Gaussians to represent the spatial distribution
-param.nbIter = 50 # Maximum number of iterations for iLQR
+param.nbIter = 100 # Maximum number of iterations for iLQR
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
 param.dt = 1e-2 # Time step length
 param.qd = 1e0; #Bounded domain weight term
-param.qr =1e2   # Reach target weight term
+param.qr =1e0   # Reach target weight term
 param.qc = 1e-6 #Curvature weight term
-param.r = 1e-9 # Control weight term
+param.r = 1e-6 # Control weight term
 param.nbAgents = 1
-#param.Mu_reach = np.array([[0.3],[0.9]]) #Target to reach
+
 param.Mu_reach = np.concatenate(([0.3, 0.9], np.zeros(param.nbVarX - param.nbVarPos))).reshape(-1, 1)
 
 param.xlim = [0,1] # Domain limit
@@ -247,17 +239,7 @@ logs.w = []
 logs.g = []
 logs.e = []
 
-
-# Transfer matrices (for linear system as single integrator)
-# Su = np.vstack([
-# 	np.zeros([param.nbVarX, param.nbVarX*(param.nbData-1)]), 
-# 	np.tril(np.kron(np.ones([param.nbData-1, param.nbData-1]), np.eye(param.nbVarX) * param.dt))
-# ]) 
-# Sx = np.kron(np.ones(param.nbData), np.eye(param.nbVarX)).T
-# Sr = Su[idx-1, :]
-
-
-#Dybamical system settings (discrete version)
+#Dynamical system settings (discrete version)
 A1d = np.zeros((param.nbDeriv, param.nbDeriv))
 for i in range(param.nbDeriv):
     A1d += np.diag(np.ones(param.nbDeriv - i), k=i) * (param.dt ** i) / math.factorial(i)
@@ -276,6 +258,18 @@ Q = np.diag(param.Lambda) # Precision matrix
 Qd = np.eye(param.nbData * param.nbVarPos) * param.qd
 Qr = np.eye(param.nbPoints * param.nbVarX) * param.qr
 R = np.eye((param.nbData-1) * param.nbVarPos) * param.r # Control weight matrix (at trajectory level)
+
+M = np.array(
+    [
+        [1.0, 0.0, 0.0],
+        [-1 / param.dt, 1 / param.dt, 0.0],
+        [1 / param.dt**2, -2.0 / param.dt**2, 1.0 / param.dt**2],
+    ]
+)
+Phi0 = np.zeros((param.nbDerivCurv * param.nbData, param.nbData))
+for i in range(param.nbData - 2):
+    Phi0[i * param.nbDerivCurv : (i + 1) * param.nbDerivCurv, i : i + param.nbDerivCurv] = M
+Phi = np.kron(Phi0, np.eye(param.nbVarPos))
 
 
 # Compute Fourier series coefficients w_hat of desired spatial distribution
@@ -312,16 +306,28 @@ image_path = "reconstructed_distribution"
 save_plot(xm,g,nbRes,image_path)
 directory = "mouse_trajectories"
 ref_trajectories = create_trajectories(directory, param.nbAgents, param.nbData, image_path+'.png')
-fc_ref = reference_curvature(ref_trajectories[0].T)
+initial_trajectory = np.array(ref_trajectories[0])
+initial_trajectory += np.random.rand(*initial_trajectory.shape)*0.001 # otherwise invalid inputs
+tck, _ = splprep([initial_trajectory[:, 0], initial_trajectory[:, 1]], s=0.1)
+u_new = np.linspace(0, 1, param.nbData)
+initial_trajectory_smooth = np.stack(splev(u_new, tck), axis=1)
+fc_ref = reference_curvature(param,initial_trajectory_smooth)
+
+# # Plot the control inputs (velocity magnitudes over time)
+dx = np.gradient(initial_trajectory_smooth[:, 0], edge_order=2)/param.dt
+dy = np.gradient(initial_trajectory_smooth[:, 1], edge_order=2)/param.dt
+u = np.vstack([dx, dy]).reshape((-1, 1), order='F')
+u = u[2:]
+#plot_control_inputs(u, ax)
 
 
 # Myopic ergodic control (for initialisation)
 # ===============================
-u_max = 4e0 # Maximum speed allowed
-u_norm_reg = 1e-3 
+# u_max = 4e0 # Maximum speed allowed
+# u_norm_reg = 1e-3 
 
-xt = np.array([[0.1],[0.1]]) # Initial position
-wt = np.zeros((param.nbFct**param.nbVarX,1))
+# xt = np.array([[0.1],[0.1]]) # Initial position
+# wt = np.zeros((param.nbFct**param.nbVarX,1))
 #u = np.zeros((param.nbData-1,param.nbVarX)) # Initial control command
 #u = np.random.uniform(-u_max*0.75, u_max*0.75, (param.nbData-1, param.nbVarX))
 
@@ -347,12 +353,9 @@ wt = np.zeros((param.nbFct**param.nbVarX,1))
 # iLQR
 # ===============================
 
-#u = u.reshape((-1,1)) # Initial control command
-#u = (u + np.random.normal(size=(len(u),1))).reshape((-1,1))
-
-#x0 = np.array([[0.1],[0.1]]) # Initial position
-x0 = np.concatenate(([0.1, 0.1], np.zeros(param.nbVarX - param.nbVarPos))).reshape(-1, 1)
-u = np.tile((param.Mu_reach[:2] - x0[:2]) / ((param.nbData - 1) * param.dt), (param.nbData - 1, 1))
+x0 = initial_trajectory_smooth[0, :].reshape((-1, 1))
+x = Su @ u + Sx @ x0 # System evolution
+logs.x += [x]  # Save trajectory in state space
 
 for i in range(param.nbIter):
     x = Su @ u + Sx @ x0 # System evolution
@@ -360,7 +363,8 @@ for i in range(param.nbIter):
     fd, Jd = f_domain(x[idp-1], param)
     w, J = f_ergodic(x[idp-1], param) # Fourier series coefficients and Jacobian
     fr, Jr = f_reach(x[idx-1], param) # Reach target
-    fc, Jc = f_curvature(x.reshape(param.nbVarX,param.nbData, order = 'F'),param)
+    fc, Jc = f_curvature((Phi @ x).reshape(6,param.nbData,order = 'F'),param)
+    Jc = Jc @ Phi
     f = w - w_hat # Residual
     fc_delta = fc.reshape(-1,1) - fc_ref.reshape(-1,1)
   
@@ -369,30 +373,25 @@ for i in range(param.nbIter):
      Sr.T @ Jr.T @ Qr @ Jr @ Sr + R) @ (-Su[idp-1,:].T @ (J.T @ Q @ f + Jd.T @ Qd @ fd) -Su.T @ Jc.T @ fc_delta *param.qc- Sr.T @ Jr.T @ Qr @ fr - u * param.r) # Gauss-Newton update
     
     cost0 = f.T @ Q @ f + np.linalg.norm(fd)**2 * param.qd  + np.linalg.norm(fc_delta)**2 * param.qc + np.linalg.norm(fr)**2 * param.qr+ np.linalg.norm(u)**2 * param.r # Cost
-    
-	# Log data
-    logs.x += [x] # Save trajectory in state space
-    logs.w += [w] # Save Fourier coefficients along trajectory
-    logs.g += [w.T @ phim] # Save reconstructed spatial distribution (for visualization)
-    logs.e += [cost0.squeeze()] # Save reconstruction error
-
+	 # Log data
+    logs.x += [x]  # Save trajectory in state space
+    logs.w += [w]  # Save Fourier coefficients along trajectory
+    logs.g += [w.T @ phim]  # Save reconstructed spatial distribution (for visualization)
+    logs.e += [cost0.squeeze()]  # Save reconstruction error
 
     # Estimate step size with backtracking line search method
     alpha = 1
-
     while True:
         utmp = u + du * alpha
         xtmp = Sx @ x0 + Su @ utmp
         fdtmp, _ = f_domain(xtmp[idp-1], param)  # Residuals and Jacobians for staying within bounded domain
         frtmp, _ = f_reach(xtmp[idx-1], param)  # Residuals and Jacobians for reaching target
-        fctmp, _ = f_curvature(xtmp.reshape(param.nbVarX,param.nbData, order = 'F'),param)
+        fctmp, _ = f_curvature((Phi @ xtmp).reshape(6,param.nbData, order = 'F'),param)
         wtmp, _ = f_ergodic(xtmp[idp-1], param)
-        
         ftmp = wtmp - w_hat 
         cost = ftmp.T @ Q @ ftmp + np.linalg.norm(fdtmp)**2 * param.qd + np.linalg.norm(fctmp-fc_ref)**2 * param.qc + np.linalg.norm(frtmp)**2 * param.qr+ np.linalg.norm(utmp)**2 * param.r
         if cost < cost0 or alpha < 1e-3:
-            print("Iteration {}, cost: {}".format(i, cost.squeeze()))
-            #print(cost.squeeze())
+            print(f"Iteration {i}, cost: {cost.squeeze()}")
             break
         alpha /= 2
 
@@ -413,8 +412,9 @@ Y = np.squeeze(xm[1, :, :])
 G = np.reshape(g, [nbRes, nbRes])  # original distribution
 G = np.where(G > 0, G, 0)
 plt.contourf(X, Y, G, cmap="gray_r")
-plt.plot(logs.x[0][0::param.nbVarX],logs.x[0][1::param.nbVarX], linestyle="-", color=[.7,.7,.7],label="Initial")
-plt.plot(logs.x[-1][0::param.nbVarX],logs.x[-1][1::param.nbVarX], linestyle="-", color=[0,0,0],label="Final")
+plt.plot(logs.x[0][0::param.nbVarX],logs.x[0][1::param.nbVarX], linestyle="-", color=[.7,.7,.7],label="Initial x from u command")
+plt.plot(logs.x[-1][0::param.nbVarX],logs.x[-1][1::param.nbVarX], linestyle="-", color=[0,0,0],label="Final x")
+plt.plot(initial_trajectory[:, 0], initial_trajectory[:, 1], linestyle="-", color=[1,0,0],label="Initial x")
 plt.axis("scaled")
 plt.legend()
 plt.title("Spatial distribution g(x)")
