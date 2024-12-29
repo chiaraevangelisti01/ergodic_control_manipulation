@@ -147,7 +147,7 @@ param.nbIter = 50 # Maximum number of iterations for iLQR
 param.nbVarX = 6 # State space dimension (x1,x2,x3)
 param.nbVarU = param.nbVarX # Control space dimension (dx1,dx2,dx3)
 param.nbVarF = 7 # Task space dimension (f1,f2,f3 for position, f4,f5,f6,f7 for unit quaternion)
-param.nbPoints = 10 #viapoints of the trajectory
+param.nbPoints = 15 #viapoints of the trajectory
 
 param.Mu = np.ndarray((param.nbVarF, param.nbPoints))
 #Define a circular 2d trajectory  for 10 viapoints
@@ -157,10 +157,11 @@ x = 0.2+r * np.cos(theta)
 y = 0.2+r * np.sin(theta)
 
 #Define a sine wave trajectory
-# x = np.linspace(-0.3, 0.3, param.nbPoints)
-# y = 0.2 * np.sin(4 * np.pi * x ) + 0.1
+# y = np.linspace(-0.35, 0.35, param.nbPoints) 
+# x =0.2 * np.sin(4 * np.pi * y ) +0.2
 
-z = 0.00*np.arange(param.nbPoints)+0.01 # planar trajectory
+
+z = 0.02*np.arange(param.nbPoints)+0.01 # planar trajectory
 base_orientation = [0.0, 1.0, 0.0, 0.0] #perpendicular to the plane, opposite direction of z axis, could be also [0.0, 0.0, 1.0, 0]
 
 #Randm rotation around z axis for testing --> should be misaligned since ingnored
