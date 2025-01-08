@@ -3,14 +3,11 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg  # For loading the image
 from scipy.ndimage import zoom  # Import zoom for resampling
 from PIL import Image
-from scipy.stats import multivariate_normal
-from scipy.integrate import dblquad
-
 import time
 
 class ElectrostaticHalftoning:
 
-    def __init__(self, num_agents, image_path,xdom, ydom, Mu,Sigma,Priors, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=25e-3):
+    def __init__(self, num_agents, image_path,xdom, ydom, initialization = 'random', num_iterations = 250, target_resolution=(100, 100), displacement_threshold=2.5e-3):
 
         self.num_agents = num_agents # for sampling at steady-state
         self.image_path = image_path
@@ -20,10 +17,6 @@ class ElectrostaticHalftoning:
         self.xdom = xdom #Application domain on x
         self.ydom = ydom #Application domain on y
         self.initialization = initialization
-        self.Mu = Mu
-        self.Sigma = Sigma
-        self.Priors = Priors
-        
         self.nbVarX = 2  # 2D state space for x, y coordinates
         
         self.xlim = None
@@ -31,8 +24,8 @@ class ElectrostaticHalftoning:
         self.forcefield = None
         self.particles = None
         self.required_particles = None
-        self.sf_agent = None #Scaling factor for the forces to account for number of agents different from number of particles
-        self.sf_attraction = self.num_agents**0.4, #Scaling factor for the attractive forces to account for the analytical force field
+        self.scaling_factor = None #Scaling factor for the forces to account for number of agents different from number of particles
+        
         
 
     ######################INPUT DATA PROCESSING FUNCTIONS###########################
@@ -46,28 +39,7 @@ class ElectrostaticHalftoning:
         rescaled_image = zoom(image,zoom_factors)
 
         return rescaled_image
-    
-    def scale_covariance(self, cov_matrix, scale_factor):
-        '''Scale the covariance matrix to new domain'''
-        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
-        scaled_eigvals = eigvals * scale_factor
-        scaled_cov_matrix = eigvecs @ np.diag(scaled_eigvals) @ eigvecs.T
-        return scaled_cov_matrix
-    
-    def scale_distribution(self):
-        '''Scale the covariances while preserving their structure: assuming square domain'''
-        spread_factor = self.target_resolution[0] /self.xdom[1] 
-       
-
-        if len(self.Mu.shape) == 1:
-            self.Mu = self.Mu.reshape(-1,1)
-            self.Sigma = self.Sigma.reshape(2,2,1)
-
-        for i in range(self.Mu.shape[1]):
-            self.Sigma[:, :, i] = self.scale_covariance(self.Sigma[:, :, i], spread_factor**2)
-            self.Mu[:,i] = self.Mu[:,i]*spread_factor
-        
-        return
+   
 
      ######################ALGORITHM FUNCTIONS ###########################
     def number_particles(self):
@@ -75,60 +47,41 @@ class ElectrostaticHalftoning:
         return int(np.round(np.sum(1 - self.image)))
 
     
-    def analytical_force_field(self):
-        '''Compute the force field analytically '''
+    def compute_force_field(self):
+        '''Compute the force field using vectorized operations.'''
 
-        x = np.linspace(self.xlim[0], self.xlim[1], self.target_resolution[0])
-        y = np.linspace(self.ylim[0], self.ylim[1], self.target_resolution[1])
-        X, Y = np.meshgrid(x, y)
-        pos = np.dstack((X, Y))
-        Z = np.zeros(pos.shape[:2])
+        x_grid, y_grid = np.meshgrid(np.arange(self.xlim[0], self.xlim[1]), np.arange(self.ylim[0], self.ylim[1]), indexing='ij')
 
-        for k in range(self.Mu.shape[1]):
-           
-            Z += self.Priors[k]*multivariate_normal.pdf(pos, mean=self.Mu[:,k], cov=self.Sigma[:,:,k])
+        # Stack the grid coordinates into shape (grid_size, 2) where each row is a point [x, y]
+        grid_points = np.stack([x_grid, y_grid], axis=-1)  # Shape: (n_x, n_y, 2)
+
+        # Reshape the grid points to (N, 2) where N = n_x * n_y for easy broadcasting
+        grid_points_flat = grid_points.reshape(-1, 2)  # Shape: (N, 2)
+
+        # Compute pairwise differences (each point with every other point)
+        deltas = grid_points_flat[:, np.newaxis, :] - grid_points_flat[np.newaxis, :, :]  # Shape: (N, N, 2)
+
+        distances = np.linalg.norm(deltas, axis=-1)
+        np.fill_diagonal(distances, np.inf) # Avoid division by zero by setting diagonal (self-interaction) to infinit
+
+        unit_vectors = deltas / distances[:, :, np.newaxis]  # Shape: (N, N, 2)
+        forces = unit_vectors /distances[:, :, np.newaxis]  # Shape: (N, N, 2)
+
+        flipped_image = np.flipud(self.image)  # Flip image y-axis to match the grid points
+
+        # Reshape the flipped_image to a 1D array, add 2 dimensions (2d forcefield, broadcast for multiplication
+        grey_values_flat = (1 - flipped_image).reshape(-1)  # Shape: (N,)
+        grey_values_stacked = np.stack([grey_values_flat] * 2, axis=-1)  # Shape: (N, 2)
+        grey_values_broadcasted = grey_values_stacked[:, np.newaxis, :]  # Shape: (N, N, 2)
+
+        # Element-wise multiply the grayscale values with the forcefield contributions
+        forcefield_contribution = forces * grey_values_broadcasted*self.scaling_factor
+
+        total_forces = forcefield_contribution.sum(axis=0)  # get the total force acting on each point
+        total_forces = total_forces.reshape(grid_points.shape)  # Reshape total forces back to grid shape (n_x, n_y, 2)
+
+        return total_forces
     
-        grad_y, grad_x = np.gradient(Z,y,x)
-        grad_f =np.stack((grad_x, grad_y),axis=-1)
-        grad_f = grad_f/(np.linalg.norm(grad_f,axis=-1, keepdims=True)+1e-15)
-
-        return grad_f#/Z[:,:,np.newaxis]
-    
-    def force_field_with_direction(self, p):
-        """
-        Compute the attractive force at position p based on a mixture of Gaussians,
-        including contributions from every point in the integration domain.
-        """
-        # Create a grid of points within the integration domain
-        x1 = np.linspace(self.xlim[0], self.xlim[1], self.target_resolution[0])
-        x2 = np.linspace(self.ylim[0], self.ylim[1], self.target_resolution[1])
-        X1, X2 = np.meshgrid(x1, x2)
-        grid_points = np.stack([X1.ravel(), X2.ravel()], axis=1)  # Flatten the grid
-
-        force = np.zeros(2)
-        Sigma_inv_list = [np.linalg.inv(self.Sigma[:, :, k]) for k in range(len(self.Priors))]
-        
-
-        # Compute the contributions for every point in the domain
-        for k in range(len(self.Priors)):
-            weight = self.Priors[k]
-            mu_k = self.Mu[:, k]
-            Sigma_inv = Sigma_inv_list[k]
-
-            diffs = grid_points - mu_k
-            exp_terms = np.exp(-0.5 * np.einsum("ij,jk,ik->i", diffs, Sigma_inv, diffs))  # Mahalanobis distances
-            f_k = weight * exp_terms  # Weighted density
-
-            diffs_px = -p + grid_points
-            norms_px = np.linalg.norm(diffs_px, axis=1) + 1e-12  # Avoid division by zero
-            transformed_diffs = np.einsum("ij,jk->ik", diffs_px, Sigma_inv)  # Apply Sigma^-1
-            direction_terms = transformed_diffs / norms_px[:, np.newaxis]
-            #direction_terms = diffs_px / norms_px[:, np.newaxis]
-
-            force += np.sum(direction_terms * f_k[:, np.newaxis], axis=0)
-       
-        return force
-
     
     def initialize_particles(self):
         '''Initialize particles in the image randomly, optimizing based on gray values'''
@@ -141,7 +94,6 @@ class ElectrostaticHalftoning:
 
             gray_values = np.flipud(self.image).flatten()  # Flatten the grayscale image to match coordinates
             max_grey = np.max(gray_values)
-            
             # Apply probability filtering based on the grayscale values, ensuring that darker pixels have a higher chance
             probabilities = 1 - gray_values / max_grey  # Convert grey values to probabilities
             
@@ -149,11 +101,10 @@ class ElectrostaticHalftoning:
             selected_indices = np.random.choice(len(valid_pixels), size=self.num_agents , p=probabilities/np.sum(probabilities), replace=False)
             particles = valid_pixels[selected_indices].T
         
-        
         elif self.initialization == 'uniform':
             row_particles = int(np.sqrt(self.num_agents*self.image.shape[1]/self.image.shape[0]))
             col_particles = int(np.sqrt(self.num_agents*self.image.shape[0]/self.image.shape[1]))
-          
+
             while row_particles*col_particles < self.num_agents:
                 row_particles += 1
             
@@ -206,7 +157,7 @@ class ElectrostaticHalftoning:
         np.fill_diagonal(distances, np.inf)
         
         # Unit vector, coulomb law in 1d (1/distance^2), broadcasting to apply force direction
-        forces = delta / (distances**2+ 1e-8)
+        forces = delta / distances**2
         
         return np.sum(forces, axis=2)
 
@@ -214,7 +165,7 @@ class ElectrostaticHalftoning:
     def evolve_particles(self):
         '''Compute particle movement in parallel using vectorized operations'''
         positions_over_time = [self.particles.copy()]  # Store the initial positions
-        tau = 0.05#(self.displacement_threshold*self.num_iterations)/self.num_agents**1.05#0.006  # Step size, reduce it for more fine-grained movement
+        tau = 0.05
         shaking_strength = 0.001  # Shaking strength
         converged = False
 
@@ -228,16 +179,13 @@ class ElectrostaticHalftoning:
                 p_old = p.copy()  
 
                 # Apply bilinear interpolation for attractive forces
-                #attractive_force = self.bilinear_interpolation(self.forcefield, p)
-                attractive_force = self.force_field_with_direction(p[::-1])
-                #print("Attractive force:", attractive_force)
-                #print("Repulsive force: ", forces[:, i])
+                attractive_force = self.bilinear_interpolation(self.forcefield, p)
                 
                 # Combine repulsive and attractive forces
-                total_force = forces[:, i] + attractive_force[::-1]*2.5#*self.sf_attraction
+                total_force = forces[:, i] + attractive_force
 
                 # Update particle position
-                self.particles[:, i] = np.clip(p + tau * total_force, [self.xlim[0], self.ylim[0]], [self.xlim[1], self.xlim[1]])
+                self.particles[:, i] = p + tau * total_force
 
                 # Calculate displacement by comparing with the old position (before update)
                 displacement = np.linalg.norm(self.particles[:, i] - p_old)
@@ -262,10 +210,8 @@ class ElectrostaticHalftoning:
     
     def run(self):
         '''Run the electrostatic halftoning algorithm'''
-
         # Process the input image
         self.image = self.process_image(self.image_path)
-        self.scale_distribution()
 
         # Initialize grid points 
         self.xlim = (0, self.image.shape[0])  # Number of rows in the image defines the x-limits
@@ -273,11 +219,10 @@ class ElectrostaticHalftoning:
 
         # Compute the required number of particles to maintain the average grey value
         self.required_particles = self.number_particles()
-        self.sf_agents = self.num_agents / self.required_particles
+        self.scaling_factor = self.num_agents / self.required_particles
         
         #Compute the force field (plot for debugging)
-        self.forcefield = self.ff2()
-        self.plot_force_field()
+        self.forcefield = self.compute_force_field()
         
         # Initialize particles in the  domain
         self.particles = self.initialize_particles()
@@ -296,10 +241,10 @@ class ElectrostaticHalftoning:
         '''Scale agent positions to a new domain [xlow, xup] * [ylow, yup]'''
     
         # Scale the x coordinates
-        positions[0,:] = (positions[0, :] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * (yup - ylow) + ylow
+        positions[0,:] = (positions[0, :] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * (xup - xlow) + xlow
         
         # Scale the y coordinates
-        positions[1,:] = (positions[1, :] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * (xup - xlow) + xlow
+        positions[1,:] = (positions[1, :] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * (yup - ylow) + ylow
         
         # Return the scaled positions as a 2xN array
         return positions
@@ -400,42 +345,6 @@ class ElectrostaticHalftoning:
     
         return sampled_particles
     
-    
-    def compute_force_field(self):
-        '''Compute the force field using vectorized operations.'''
-
-        x_grid, y_grid = np.meshgrid(np.arange(self.xlim[0], self.xlim[1]), np.arange(self.ylim[0], self.ylim[1]), indexing='ij')
-
-        # Stack the grid coordinates into shape (grid_size, 2) where each row is a point [x, y]
-        grid_points = np.stack([x_grid, y_grid], axis=-1)  # Shape: (n_x, n_y, 2)
-
-        # Reshape the grid points to (N, 2) where N = n_x * n_y for easy broadcasting
-        grid_points_flat = grid_points.reshape(-1, 2)  # Shape: (N, 2)
-
-        # Compute pairwise differences (each point with every other point)
-        deltas = grid_points_flat[:, np.newaxis, :] - grid_points_flat[np.newaxis, :, :]  # Shape: (N, N, 2)
-
-        distances = np.linalg.norm(deltas, axis=-1)
-        np.fill_diagonal(distances, np.inf) # Avoid division by zero by setting diagonal (self-interaction) to infinit
-
-        unit_vectors = deltas / distances[:, :, np.newaxis]  # Shape: (N, N, 2)
-        forces = unit_vectors /distances[:, :, np.newaxis]  # Shape: (N, N, 2)
-
-        flipped_image = np.flipud(self.image)  # Flip image y-axis to match the grid points
-
-        # Reshape the flipped_image to a 1D array, add 2 dimensions (2d forcefield, broadcast for multiplication
-        grey_values_flat = (1 - flipped_image).reshape(-1)  # Shape: (N,)
-        grey_values_stacked = np.stack([grey_values_flat] * 2, axis=-1)  # Shape: (N, 2)
-        grey_values_broadcasted = grey_values_stacked[:, np.newaxis, :]  # Shape: (N, N, 2)
-
-        # Element-wise multiply the grayscale values with the forcefield contributions
-        forcefield_contribution = forces * grey_values_broadcasted*self.scaling_factor
-
-        total_forces = forcefield_contribution.sum(axis=0)  # get the total force acting on each point
-        total_forces = total_forces.reshape(grid_points.shape)  # Reshape total forces back to grid shape (n_x, n_y, 2)
-
-        return total_forces
-    
         
     def ff2(self):
         grid_points = np.array(np.meshgrid(np.arange(0, 100), np.arange(0, 100)))
@@ -446,35 +355,58 @@ class ElectrostaticHalftoning:
             forcefield[ip, jp] = self.force_field_with_direction(np.array([jp, ip])) # Scale by grey value
                                
         return forcefield
+    
+    def scale_covariance(self, cov_matrix, scale_factor):
+        '''Scale the covariance matrix to new domain'''
+        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
+        scaled_eigvals = eigvals * scale_factor
+        scaled_cov_matrix = eigvecs @ np.diag(scaled_eigvals) @ eigvecs.T
+        return scaled_cov_matrix
+    
+    def scale_distribution(self):
+        '''Scale the covariances while preserving their structure: assuming square domain'''
+        spread_factor = self.target_resolution[0] /self.xdom[1] 
+       
+
+        if len(self.Mu.shape) == 1:
+            self.Mu = self.Mu.reshape(-1,1)
+            self.Sigma = self.Sigma.reshape(2,2,1)
+
+        for i in range(self.Mu.shape[1]):
+            self.Sigma[:, :, i] = self.scale_covariance(self.Sigma[:, :, i], spread_factor**2)
+            self.Mu[:,i] = self.Mu[:,i]*spread_factor
+        
+        return
+    
+    def analytical_force_field(self):
+        '''Compute the force field analytically '''
+
+        x = np.linspace(self.xlim[0], self.xlim[1], self.target_resolution[0])
+        y = np.linspace(self.ylim[0], self.ylim[1], self.target_resolution[1])
+        X, Y = np.meshgrid(x, y)
+        pos = np.dstack((X, Y))
+        Z = np.zeros(pos.shape[:2])
+
+        for k in range(self.Mu.shape[1]):
+           
+            Z += self.Priors[k]*multivariate_normal.pdf(pos, mean=self.Mu[:,k], cov=self.Sigma[:,:,k])
+    
+        grad_y, grad_x = np.gradient(Z,y,x)
+        grad_f =np.stack((grad_x, grad_y),axis=-1)
+        grad_f = grad_f/(np.linalg.norm(grad_f,axis=-1, keepdims=True)+1e-15)
+
+        return grad_f#/Z[:,:,np.newaxis]
 
 
     
-# # #Example usages
-num_agents = 100
-num_iterations =200
+# # # #Example usages
+# num_agents = 200
+# num_iterations =300
 
-nbVarX = 2  # State space dimension
-nbStates = 2  # Number of Gaussians to represent the spatial distribution
-# Desired spatial distribution represented as a mixture of Gaussians
-Mu = np.zeros((2,2))
-Mu[:,0] = [0.5, 0.7]
-Mu[:,1] = [0.6, 0.3]
-Sigma = np.zeros((2,2,2))
-sigma1_tmp= np.array([[0.3],[0.1]])
-Sigma[:,:,0] = sigma1_tmp @ sigma1_tmp.T * 5e-1 + np.eye(nbVarX)*5e-3
-sigma2_tmp= np.array([[0.1],[0.2]])
-Sigma[:,:,1] = sigma2_tmp @ sigma2_tmp.T * 3e-1 + np.eye(nbVarX)*1e-2 
-# Mu = np.array([0.5, 0.7])
-# sigma1_tmp= np.array([[0.3],[0.1]])
-# Sigma= sigma1_tmp @ sigma1_tmp.T * 5e-1 + np.eye(nbVarX)*5e-3
+# # # #image_path = "black_circle.png"
+# # #image_path = "dog_grey.jpg"
+# image_path = "spatial_distribution.png"
 
-Priors = np.ones(nbStates) / nbStates # Mixing coeffic
-
-# # #image_path = "black_circle.png"
-# #image_path = "dog_grey.jpg"
-image_path = "original_distribution.png"
-
-halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], Mu, Sigma, Priors,"random", num_iterations)
-agents = halftoning.run()
-
+# halftoning = ElectrostaticHalftoning(num_agents, image_path, [0,1], [0,1], "random", num_iterations)
+# agents = halftoning.run()
 

@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 #from electrostatic_halftoning_opt import ElectrostaticHalftoning
+from diffusion_particles import DiffusionBasedPlacement
 import scipy
 
 # Helper functions
@@ -109,17 +110,17 @@ def save_plot(xm,g,nbRes,image_name):
 ## Parameters
 # ===============================
 param = lambda: None  # Lazy way to define an empty class in Python
-param.nbData = 250  # Number of datapoints
+param.nbData = 10  # Number of datapoints
 param.nbVarX = 2  # State space dimension
-param.nbFct = 16  # Number of Fourier basis functions
+param.nbFct = 8  # Number of Fourier basis functions
 param.nbStates = 2  # Number of Gaussians to represent the spatial distribution
 param.nbPoints = 1  # Number of viapoints to reach (here, final target point)
-param.nbAgents = 4  # Number of agents
-param.nbIter = 100  # Maximum number of iterations for iLQR
+param.nbAgents = 1000  # Number of agents
+param.nbIter = 50  # Maximum number of iterations for iLQR
 param.dt = 1e-2  # Time step length
-param.r = 1e-6  # Control weight term
+param.r = 1e-7  # Control weight term
 param.qd = 1e0  # Bounded domain weight term
-param.qr =1e-4   # Reach target weight term
+param.qr =0e4   # Reach target weight term
 param.Mu_ma = np.matlib.repmat(np.array([[0.3], [0.9]]), 1, param.nbAgents) # Target positions for agents
 
 param.xlim = [0,1] # Domain limit
@@ -174,15 +175,15 @@ Su = np.vstack([
 Sx = np.kron(np.ones(param.nbData), np.eye(param.nbVarX)).T
 Sr = Su[idx-1, :] ##different indexing compared to reference matlab code
 
-Q = np.zeros((param.nbAgents, len(param.Lambda), len(param.Lambda)))
-for m in range (param.nbAgents):
-    elements = int(len(param.Lambda)/param.nbAgents)
-    lambda_m = np.zeros(len(param.Lambda))
-    lambda_m[m*elements:(m+1)*elements] = param.Lambda[m*elements:(m+1)*elements]
-    Q[m,:,:] = np.diag(lambda_m) 
+# Q = np.zeros((param.nbAgents, len(param.Lambda), len(param.Lambda)))
+# for m in range (param.nbAgents):
+#     elements = int(len(param.Lambda)/param.nbAgents)
+#     lambda_m = np.zeros(len(param.Lambda))
+#     lambda_m[m*elements:(m+1)*elements] = param.Lambda[m*elements:(m+1)*elements]
+#     Q[m,:,:] = np.diag(lambda_m) 
     
 
-#Q = np.diag(param.Lambda) # Precision matrix
+Q = np.diag(param.Lambda) # Precision matrix
 Qr = np.eye(param.nbPoints * param.nbVarX) * param.qr
 Qd = np.eye(param.nbData * param.nbVarX) * param.qd
 R = np.eye((param.nbData-1) * param.nbVarX) * param.r # Control weight matrix (at trajectory level)
@@ -232,16 +233,23 @@ g = w_hat.T @ phim
 # Initialize the random starting positions of the agents
 image_path = "spatial_distribution"
 save_plot(xm,g,nbRes,image_path)
-quit()
 #image_path = "skull"
-#eh_iterations = 300
-#halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".png", param.xlim, param.xlim, eh_iterations)
-#x0 = halftoning.run()
-x0 = np.tile(np.array([[0.2], [0.1]]), param.nbAgents)
+# eh_iterations = 300
+# halftoning = ElectrostaticHalftoning(param.nbAgents, image_path+".png", param.xlim, param.xlim,"random", eh_iterations)
+# x0 = halftoning.run()
+# resolution = 100
+# diffusion_strength = 0.001
+# num_particles = 1000
+# kernel_type = "circular"
+# agent_radius = 0.0005
+
+# diffusion = DiffusionBasedPlacement(param.xlim, param.xlim, image_path+".png", resolution, diffusion_strength, param.nbAgents, kernel_type, agent_radius=agent_radius)
+# x0 = diffusion.run().T
+#x0 = np.tile(np.array([[0.2], [0.1]]), param.nbAgents)
 #x0 = np.random.rand(param.nbVarX, param.nbAgents)
-# c = (np.array([[1],[1]])*param.xlim[1]/2).reshape(-1,1)
-# x0 = np.tile(c,param.nbAgents)
-#x0 = np.zeros((param.nbVarX, param.nbAgents)) + 1e-5
+#c = (np.array([[1],[1]])*param.xlim[1]/2).reshape(-1,1)
+#x0 = np.tile(c,param.nbAgents)
+x0 = np.zeros((param.nbVarX, param.nbAgents)) + 1e-5
 
 
 # Shift the positions and assign them to param.Mu
@@ -299,17 +307,16 @@ for n in range(param.nbIter):
     for m in range(param.nbAgents):
         
         
-        du[:,m] = (np.linalg.inv(Su.T @ (J[:, :, m].T @ Q[m, :,:] @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m])@ Su + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R) @ (-Su.T @ (J[:, :, m].T @ Q[m,:,:] @ f + Jd[:, :, m].T @ Qd @ fd[:,m].reshape(-1,1)) - Sr.T @Jr[:, :, m].T @ Qr @ fr[:,m].reshape(-1,1) - u[:, m].reshape(-1,1) * param.r)).squeeze()
+        du[:,m] = (np.linalg.inv(Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m])@ Su + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R) @ (-Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd[:,m].reshape(-1,1)) - Sr.T @Jr[:, :, m].T @ Qr @ fr[:,m].reshape(-1,1) - u[:, m].reshape(-1,1) * param.r)).squeeze()
         # #du[:, m], _, _, _ = scipy.linalg.lstsq(
         #     Su.T @ (J[:, :, m].T @ Q @ J[:, :, m] + Jd[:, :, m].T @ Qd @ Jd[:, :, m]) @ Su
         #     + Sr.T @ Jr[:, :, m].T @ Qr @ Jr[:, :, m] @ Sr + R,
         #     -Su.T @ (J[:, :, m].T @ Q @ f + Jd[:, :, m].T @ Qd @ fd[:, m].reshape(-1,1))
         #     - Sr.T @ Jr[:, :, m].T @ Qr @ fr[:, m]
         #     - u[:, m] * param.r)
-        q_component += f.T @ Q[m,:,:] @ f
 
    
-    cost0 = q_component+ np.linalg.norm(fr)**2*param.qr+ np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
+    cost0 = f.T @ Q @ f+ np.linalg.norm(fr)**2*param.qr+ np.linalg.norm(fd)**2*param.qd + np.linalg.norm(u)**2 * param.r  # Cost
 
            
 	# Log data
@@ -323,8 +330,6 @@ for n in range(param.nbIter):
     while True:
         utmp = u + du * alpha
         xtmp = Sx @ x0 + Su @ utmp
-
-    
         
         for m in range(param.nbAgents):
             wtmp[:, m], _ = f_ergodic(xtmp[:, m].reshape(-1,1), param)  # Fourier series coefficients and Jacobian for each agent
@@ -337,10 +342,10 @@ for n in range(param.nbIter):
         ftmp = wtmp_avg - w_hat  # Residuals for ergodic control
 
         
-        cost = ftmp.T @( np.sum(Q,axis = 0)) @ ftmp +  np.linalg.norm(frtmp)**2 * param.qr + np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r # chekck multiplication f and q, dimensions of multiplication are for the same agent?
+        cost = ftmp.T @ Q @ ftmp +  np.linalg.norm(frtmp)**2 * param.qr + np.linalg.norm(fdtmp)**2 * param.qd+ np.linalg.norm(utmp)**2 * param.r # chekck multiplication f and q, dimensions of multiplication are for the same agent?
         if np.all(cost < cost0) or alpha < 1e-3:
-            print("Iteration {}, cost: {}".format(n, np.mean(cost).squeeze()))
-            #print(np.mean(cost).squeeze())
+            #print("Iteration {}, cost: {}".format(n, np.mean(cost).squeeze()))
+            print(np.mean(cost).squeeze())
             break
         alpha /= 2
     
@@ -371,12 +376,12 @@ base_color = np.array([0, 1, 0])
 for m in range(param.nbAgents):
     lightness = 1 - (m / param.nbAgents) 
     color = base_color * lightness
-    plt.plot(logs.x[0][0::2, m], logs.x[0][1::2, m], linestyle="-", color=[.7, .7, .7], label="Initial" if m == 0 else None)
-    plt.plot(logs.x[-1][0::2, m], logs.x[-1][1::2, m], linestyle="-", color= color, label="Final" if m == 0 else None)
-    plt.plot(logs.x[-1][0, m], logs.x[-1][1, m], marker="o", markersize=5, color=color)
+    #plt.plot(logs.x[0][0::2, m], logs.x[0][1::2, m], linestyle="-", linewidth=1,color=[.7, .7, .7], label="Initial" if m == 0 else None)
+    plt.plot(logs.x[-1][0::2, m], logs.x[-1][1::2, m], linestyle="-",linewidth=1, color= color, label="Final" if m == 0 else None)
+    plt.plot(logs.x[-1][0, m], logs.x[-1][1, m], marker="o", markersize=5, linewidth=1,color=color)
 
 # Plot the target positions
-plt.plot(param.Mu_ma[0, :], param.Mu_ma[1, :], 'x', markersize=6, linewidth=4, color=[0.6, 0, 0], label="Target")
+#plt.plot(param.Mu_ma[0, :], param.Mu_ma[1, :], 'x', markersize=6, linewidth=4, color=[0.6, 0, 0], label="Target")
 plt.axis("scaled")
 plt.title("Spatial distribution g(x)")
 plt.legend()
